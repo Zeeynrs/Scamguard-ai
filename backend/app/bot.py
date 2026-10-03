@@ -9,6 +9,12 @@ Flow:
 import os
 import logging
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load project-root .env (one level up from backend/)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+load_dotenv()  # also try CWD
+
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
