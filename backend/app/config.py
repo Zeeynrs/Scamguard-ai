@@ -1,8 +1,18 @@
 from pydantic_settings import BaseSettings
+from functools import lru_cache
+import os
 from typing import Literal
+
+# Resolve project root (two levels up from backend/app/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_env_path = os.path.join(_PROJECT_ROOT, ".env")
 
 
 class Settings(BaseSettings):
+    """Runtime settings loaded from project-root .env."""
+
+    # LLM provider
+    llm_provider: Literal["openai", "groq", "ollama"] = "openai"
     # LLM
     llm_provider: Literal["openai", "groq", "ollama"] = "openai"
     openai_api_key: str = ""
