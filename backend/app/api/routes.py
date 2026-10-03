@@ -5,6 +5,7 @@ import base64
 import time
 import numpy as np
 from typing import Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -20,6 +21,12 @@ from app.intent.llm import analyze_intent
 from app.vision.analyzer import FaceAnalyzer
 
 router = APIRouter()
+
+
+class TextAnalysisRequest(BaseModel):
+    text: str
+    deepfake_audio_hint: float = 0.0
+    deepfake_video_hint: float = 0.0
 
 
 def _weights() -> dict:
@@ -39,6 +46,48 @@ async def health():
         "llm_provider": settings.llm_provider,
         "whisper_model": settings.whisper_model,
     }
+
+
+@router.post("/analyze/text", response_model=AnalysisReport)
+async def analyze_text(payload: TextAnalysisRequest):
+    """
+    Direct text analysis (transcript input).
+    Runs intent engine + risk fusion with optional synthetic audio/video hints.
+    Useful for testing without audio, and for calls where a transcript is already available.
+    """
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+
+    intent_result = analyze_intent(payload.text)
+
+    audio_result = AudioAnalysisResult(
+        transcript=payload.text,
+        language="auto",
+        deepfake_score=payload.deepfake_audio_hint,
+        deepfake_indications=["Synthetic audio flag provided by client"] if payload.deepfake_audio_hint > 0.5 else [],
+    )
+
+    vision_result = VisionAnalysisResult(
+        face_detected=payload.deepfake_video_hint > 0.0,
+        deepfake_score=payload.deepfake_video_hint,
+        indications=["Synthetic video flag provided by client"] if payload.deepfake_video_hint > 0.5 else [],
+    )
+
+    risk = compute_risk(audio_result, vision_result, intent_result, _weights())
+
+    return AnalysisReport(
+        mode="upload",
+        audio_result=audio_result,
+        vision_result=vision_result,
+        intent_result=intent_result,
+        risk=risk,
+        raw_scores={
+            "intent_confidence": intent_result.confidence,
+            "rule_tactics": len(intent_result.tactics_detected),
+            "audio_deepfake": payload.deepfake_audio_hint,
+            "video_deepfake": payload.deepfake_video_hint,
+        },
+    )
 
 
 @router.post("/analyze/upload", response_model=AnalysisReport)
