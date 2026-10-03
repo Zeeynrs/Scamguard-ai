@@ -1,0 +1,39 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# ---- Env / secrets ----
+.env
+.env.local
+*.key
+
+# ---- Models / weights ----
+models/
+*.pt
+*.pth
+*.onnx
+*.bin
+*.safetensors
+
+# ---- Data ----
+sample_data/*.wav
+sample_data/*.ogg
+sample_data/*.mp4
+sample_data/*.mp3
+
+# ---- Node ----
+node_modules/
+.next/
+out/
+dist/
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
+*.log
