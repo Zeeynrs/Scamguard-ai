@@ -19,6 +19,7 @@ from app.audio.stt import transcribe_bytes, pcm16_to_wav_bytes
 from app.audio.deepfake import score_audio_bytes
 from app.intent.llm import analyze_intent
 from app.vision.analyzer import FaceAnalyzer
+from app.video.deepfake import VideoDeepfakeDetector
 
 router = APIRouter()
 
@@ -168,6 +169,7 @@ async def analyze_stream(websocket: WebSocket):
     await websocket.accept()
     start = time.time()
     analyzer = FaceAnalyzer()
+    deepfake_detector = VideoDeepfakeDetector(window_seconds=10.0)
 
     # Cumulative transcript built from segments
     full_transcript = ""
@@ -207,8 +209,21 @@ async def analyze_stream(websocket: WebSocket):
                     arr = np.frombuffer(raw, dtype=np.uint8)
                     frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
                     if frame is not None:
+                        # Run deepfake detector (blink rate + jitter)
+                        deepfake_result = deepfake_detector.analyze_frame(frame)
+                        
+                        # Merge with existing face analyzer
                         analyzer.process_frame(frame)
-                        latest["vision"] = analyzer.compute_result(now - start)
+                        base_vision = analyzer.compute_result(now - start)
+                        
+                        # Combine results
+                        latest["vision"] = VisionAnalysisResult(
+                            face_detected=deepfake_result["face_detected"] or base_vision.face_detected,
+                            deepfake_score=max(deepfake_result["deepfake_score"], base_vision.deepfake_score),
+                            blink_rate_per_min=deepfake_result.get("blink_rate", 0.0),
+                            jitter_score=deepfake_result.get("jitter_score", 0.0),
+                            indications=(deepfake_result.get("indications", []) + base_vision.indications)
+                        )
                 except Exception as e:
                     print(f"[stream] vision error: {e}")
 
@@ -255,6 +270,7 @@ async def analyze_stream(websocket: WebSocket):
                 "risk": risk.model_dump(),
                 "elapsed_seconds": round(now - start, 1),
                 "vision": latest["vision"].model_dump(),
+                "audio": audio_result.model_dump(),
             })
 
     except WebSocketDisconnect:

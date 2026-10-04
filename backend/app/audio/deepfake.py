@@ -20,10 +20,15 @@ def _extract_acoustic_features(y: np.ndarray, sr: int) -> dict:
     Extracts acoustic signals commonly anomalous in neural TTS / voice clones:
     - Spectral flatness (TTS often over-smoothed in upper frequencies)
     - Zero crossing rate variance (micro-tremors in natural breath vs synthetic)
-    - Pitch (F0) std-dev (flat or mechanical intonation)
+    - Pitch (F0) std-dev via YIN (flat or mechanical intonation)
+    - Spectral flux (static spectrum = robotic; natural speech has dynamic changes)
+    - Spectral centroid stability (timbre variation across time)
     """
     if len(y) == 0:
-        return {"flatness": 0.0, "zcr_std": 0.0, "pitch_std": 0.0}
+        return {
+            "flatness": 0.0, "zcr_std": 0.0, "pitch_std": 0.0,
+            "pitch_var": 0.0, "spectral_flux": 0.0, "centroid_std": 0.0,
+        }
 
     try:
         import librosa
@@ -31,18 +36,52 @@ def _extract_acoustic_features(y: np.ndarray, sr: int) -> dict:
         zcr = librosa.feature.zero_crossing_rate(y=y)
         zcr_std = float(np.std(zcr))
 
-        # Pitch contour (pyin or pitch tracking)
+        # Pitch contour via YIN (more robust than piptrack for F0 variance)
         try:
-            pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
-            pitch_vals = pitches[magnitudes > np.median(magnitudes)]
-            pitch_std = float(np.std(pitch_vals)) if len(pitch_vals) > 0 else 0.0
+            f0 = librosa.yin(
+                y,
+                fmin=librosa.note_to_hz('C2'),
+                fmax=librosa.note_to_hz('C6'),
+                sr=sr,
+                frame_length=2048,
+                hop_length=512,
+            )
+            voiced = f0[f0 > 80.0]
+            pitch_std = float(np.std(voiced)) if len(voiced) > 10 else 0.0
+            pitch_var = float(np.var(voiced)) if len(voiced) > 10 else 0.0
         except Exception:
             pitch_std = 0.0
+            pitch_var = 0.0
 
-        return {"flatness": flatness, "zcr_std": zcr_std, "pitch_std": pitch_std}
+        # Spectral flux: frame-to-frame spectral change (low = static/robotic)
+        try:
+            D = np.abs(librosa.stft(y, n_fft=2048, hop_length=512))
+            flux = np.sqrt(np.sum(np.diff(D, axis=1) ** 2, axis=0))
+            spectral_flux = float(np.mean(flux))
+        except Exception:
+            spectral_flux = 0.0
+
+        # Spectral centroid stddev: timbre variation (low = monotonous timbre)
+        try:
+            centroid = librosa.feature.spectral_centroid(y=y, sr=sr, n_fft=2048, hop_length=512)[0]
+            centroid_std = float(np.std(centroid))
+        except Exception:
+            centroid_std = 0.0
+
+        return {
+            "flatness": flatness,
+            "zcr_std": zcr_std,
+            "pitch_std": pitch_std,
+            "pitch_var": pitch_var,
+            "spectral_flux": spectral_flux,
+            "centroid_std": centroid_std,
+        }
     except Exception as e:
         print(f"[audio.deepfake] Feature extraction error: {e}")
-        return {"flatness": 0.0, "zcr_std": 0.0, "pitch_std": 0.0}
+        return {
+            "flatness": 0.0, "zcr_std": 0.0, "pitch_std": 0.0,
+            "pitch_var": 0.0, "spectral_flux": 0.0, "centroid_std": 0.0,
+        }
 
 
 def score_audio_bytes(audio_bytes: bytes, suffix: str = ".wav") -> Tuple[float, List[str]]:
@@ -74,24 +113,49 @@ def score_audio_bytes(audio_bytes: bytes, suffix: str = ".wav") -> Tuple[float, 
     score = 0.0
     indications = []
 
-    # Heuristic scoring based on TTS spectral signatures
-    # 1. Unnatural spectral flatness (too low = muffled/over-smoothed TTS; too high = robotic noise)
+    # 1. Spectral flatness anomaly (over-smoothed TTS vocoder or robotic noise)
     if features["flatness"] < 0.0005:
-        score += 0.35
+        score += 0.30
         indications.append("Over-smoothed spectral envelope (characteristic of neural TTS vocoder)")
     elif features["flatness"] > 0.08:
-        score += 0.25
+        score += 0.20
         indications.append("Unnatural high-frequency spectral noise")
 
-    # 2. Pitch monotonicity (synthetic voices often lack natural micro-inflection)
-    if 0.0 < features["pitch_std"] < 15.0:
-        score += 0.35
-        indications.append("Flat/robotic pitch contour (low fundamental frequency variance)")
-
-    # 3. ZCR unnatural uniformity
-    if features["zcr_std"] < 0.01:
+    # 2. Pitch variance (synthetic voices lack natural micro-inflection)
+    if 0.0 < features["pitch_var"] < 25.0:
+        penalty = (25.0 - features["pitch_var"]) / 25.0
+        score += 0.30 * penalty
+        indications.append(
+            f"Flat/robotic pitch contour: variance={features['pitch_var']:.1f} Hz² (expected >25)"
+        )
+    elif features["pitch_std"] > 0.0 and features["pitch_std"] < 15.0:
         score += 0.20
+        indications.append("Low fundamental frequency variance (mechanical intonation)")
+
+    # 3. ZCR unnatural uniformity (absence of natural breath/unvoiced variance)
+    if features["zcr_std"] < 0.01:
+        score += 0.15
         indications.append("Absence of natural micro-breath / unvoiced consonant variance")
+
+    # 4. Spectral flux (static spectrum = robotic)
+    if 0.0 < features["spectral_flux"] < 0.015:
+        penalty = (0.015 - features["spectral_flux"]) / 0.015
+        score += 0.25 * penalty
+        indications.append(
+            f"Static spectrum: flux={features['spectral_flux']:.4f} (expected >0.015)"
+        )
+
+    # 5. Spectral centroid stability (monotonous timbre)
+    if 0.0 < features["centroid_std"] < 200.0:
+        penalty = (200.0 - features["centroid_std"]) / 200.0
+        score += 0.15 * penalty
+        indications.append(
+            f"Static timbre: centroid stddev={features['centroid_std']:.0f} Hz (expected >200)"
+        )
+
+    # Natural voice confirmation
+    if score < 0.10 and not indications:
+        indications.append("Natural voice characteristics detected")
 
     final_score = min(round(score, 3), 0.95)
     return final_score, indications

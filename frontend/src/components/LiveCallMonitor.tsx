@@ -19,6 +19,11 @@ interface StreamResponse {
     deepfake_score: number;
     indications: string[];
   };
+  audio: {
+    transcript: string;
+    deepfake_score: number;
+    deepfake_indications: string[];
+  };
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -28,6 +33,7 @@ export default function LiveCallMonitor() {
   const [transcript, setTranscript] = useState("");
   const [risk, setRisk] = useState<StreamResponse["risk"] | null>(null);
   const [vision, setVision] = useState<StreamResponse["vision"] | null>(null);
+  const [audio, setAudio] = useState<StreamResponse["audio"] | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +77,7 @@ export default function LiveCallMonitor() {
         setTranscript(data.transcript_window);
         setRisk(data.risk);
         setVision(data.vision);
+        setAudio(data.audio);
         setElapsed(data.elapsed_seconds);
       };
 
@@ -246,8 +253,14 @@ export default function LiveCallMonitor() {
 
             {vision && vision.deepfake_score > 0.3 && (
               <div className="px-3 py-2 rounded-xl bg-red-950/90 border border-red-800 backdrop-blur">
-                <div className="text-xs text-red-300 font-semibold">
-                  ⚠️ Video Deepfake: {(vision.deepfake_score * 100).toFixed(0)}%
+                <div className="text-xs text-red-300 font-semibold space-y-0.5">
+                  <div>⚠️ Video Deepfake: {(vision.deepfake_score * 100).toFixed(0)}%</div>
+                  {vision.blink_rate !== undefined && vision.blink_rate < 10 && (
+                    <div className="text-[10px]">👁️ Blink: {vision.blink_rate.toFixed(1)}/min (low)</div>
+                  )}
+                  {vision.jitter_score > 15 && (
+                    <div className="text-[10px]">📊 Jitter: {vision.jitter_score.toFixed(1)}px</div>
+                  )}
                 </div>
               </div>
             )}
@@ -302,6 +315,18 @@ export default function LiveCallMonitor() {
           <p className="text-slate-200 text-sm leading-relaxed italic font-serif">
             "{transcript}"
           </p>
+          
+          {/* Audio deepfake warning */}
+          {audio && audio.deepfake_score > 0.3 && (
+            <div className="mt-3 px-3 py-2 rounded-lg bg-orange-950/40 border border-orange-800/60">
+              <div className="text-xs text-orange-300 font-semibold space-y-1">
+                <div>🎙️ Audio Deepfake: {(audio.deepfake_score * 100).toFixed(0)}%</div>
+                {audio.deepfake_indications?.slice(0, 2).map((ind, i) => (
+                  <div key={i} className="text-[10px] text-orange-400/80">• {ind}</div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
