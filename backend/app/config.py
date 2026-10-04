@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_model: str = "openai/gpt-oss-120b"
 
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "llama3:8b-instruct"

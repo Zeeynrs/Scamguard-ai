@@ -109,21 +109,31 @@ def analyze_intent(text: str) -> IntentAnalysisResult:
     """
     Hybrid intent analyzer:
     1. Runs fast rule-based regex patterns (always available, deterministic).
-    2. Runs LLM classification based on configured provider (OpenAI -> Groq -> Ollama fallback).
+    2. Runs LLM classification with a resilient provider chain
+       (configured provider first, then any other provider that has a key).
     3. Fuses both into a single IntentAnalysisResult.
     """
     rule_tactics, rule_evidence = match_patterns(text)
 
-    # Call LLM based on provider preference
-    raw = None
-    if settings.llm_provider == "openai":
-        raw = _classify_with_openai(text)
-    elif settings.llm_provider == "groq":
-        raw = _classify_with_groq(text)
-    elif settings.llm_provider == "ollama":
-        raw = _classify_with_ollama(text)
+    # Build an ordered provider chain: configured provider first, then the rest.
+    _providers = {
+        "openai": _classify_with_openai,
+        "groq": _classify_with_groq,
+        "ollama": _classify_with_ollama,
+    }
+    order = [settings.llm_provider] + [p for p in _providers if p != settings.llm_provider]
 
-    # Fallback to rule-based only if LLM failed or not configured
+    raw = None
+    for provider in order:
+        fn = _providers.get(provider)
+        if not fn:
+            continue
+        raw = fn(text)
+        if raw:
+            print(f"[intent.llm] classified via '{provider}'")
+            break
+
+    # Fallback to rule-based only if every LLM provider failed or is unconfigured
     if not raw:
         num_rules = len(rule_tactics)
         is_scam = num_rules >= 2
