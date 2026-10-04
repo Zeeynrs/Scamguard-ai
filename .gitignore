@@ -37,3 +37,6 @@ dist/
 .idea/
 .vscode/
 *.log
+
+# ---- Test artifacts ----
+stress_results.jsonl

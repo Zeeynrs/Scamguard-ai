@@ -11,6 +11,15 @@ services:
       - .env
     volumes:
       - hf-cache:/root/.cache/huggingface
+    # Host has 3.82 GiB RAM and NO swap. Observed high-water under 8 concurrent
+    # live-call sessions is ~1.6 GiB. Without a limit a runaway session can OOM
+    # the whole host and kill every container; 2g converts that into a single
+    # container restart. See STRESS_TEST.md §7.
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    mem_limit: 2g
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/health\")'"]
       interval: 15s
