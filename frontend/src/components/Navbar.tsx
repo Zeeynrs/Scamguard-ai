@@ -76,7 +76,12 @@ export default function Navbar({
   const scrollToSection = useCallback((id: string) => {
     const el = document.getElementById(id);
     if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const isMobile = window.innerWidth < 768;
+      el.scrollIntoView({
+        behavior: prefersReduced || isMobile ? "auto" : "smooth",
+        block: "start",
+      });
     }
     setMobileOpen(false);
   }, []);
@@ -99,7 +104,10 @@ export default function Navbar({
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            window.scrollTo({ top: 0, behavior: "smooth" });
+            window.scrollTo({
+              top: 0,
+              behavior: window.innerWidth < 768 ? "auto" : "smooth",
+            });
           }}
           className="flex items-center gap-2.5 shrink-0 focus-ring rounded-xl px-2 py-1 hover:bg-slate-800/50 transition-colors"
           aria-label="ScamGuard Home"

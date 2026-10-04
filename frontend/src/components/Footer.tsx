@@ -39,7 +39,12 @@ export default function Footer({ language }: { language: Language }) {
   const t = copy[language];
 
   const scroll = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const isMobile = window.innerWidth < 768;
+    document.getElementById(id)?.scrollIntoView({
+      behavior: prefersReduced || isMobile ? "auto" : "smooth",
+      block: "start",
+    });
   };
 
   return (

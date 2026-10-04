@@ -35,6 +35,22 @@ body {
 
 html {
   scroll-behavior: smooth;
+  scroll-restoration: manual;
+}
+
+/* overflow-x:hidden on BOTH html+body creates a second scroll container
+   that fights touch scroll on iOS. clip does not. */
+body {
+  overflow-x: clip;
+  overscroll-behavior-y: none;
+  /* Stop the browser from auto-adjusting scroll when Hero/fonts reflow */
+  overflow-anchor: none;
+}
+
+@media (max-width: 768px) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -130,7 +146,8 @@ html {
 }
 
 .input-field {
-  @apply w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 placeholder-slate-500 text-sm transition-all duration-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed;
+  /* 16px on mobile: iOS zooms the whole page if focused input is <16px */
+  @apply w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 placeholder-slate-500 text-base md:text-sm transition-all duration-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .badge {

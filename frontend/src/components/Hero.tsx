@@ -191,7 +191,7 @@ function ThreatVisual({ language }: { language: Language }) {
         <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500 font-mono mb-2">
           {t.visual_tactics}
         </div>
-        <div className="flex flex-wrap gap-2 min-h-[28px]">
+        <div className="flex flex-wrap gap-2 min-h-[64px] content-start">
           {showTactics &&
             tactics.slice(0, tacticIndex + 1).map((tactic, i) => (
               <span

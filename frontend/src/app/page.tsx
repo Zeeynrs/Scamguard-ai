@@ -13,22 +13,27 @@ export default function ScamGuardPage() {
   const [lang, setLang] = useState<Language>("en");
   const [mode, setMode] = useState<CheckerMode>("text");
 
+  const scrollToChecker = useCallback(() => {
+    const el = document.getElementById("checker");
+    if (!el) return;
+    // Avoid smooth scroll on mobile; instant avoids fighting user touch scroll
+    const prefersReduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    el.scrollIntoView({ behavior: prefersReduced || isMobile ? "auto" : "smooth", block: "start" });
+  }, []);
+
   const goChecker = useCallback(() => {
     setMode("text");
-    requestAnimationFrame(() => {
-      document.getElementById("checker")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, []);
+    requestAnimationFrame(scrollToChecker);
+  }, [scrollToChecker]);
 
   const goLive = useCallback(() => {
     setMode("live");
-    requestAnimationFrame(() => {
-      document.getElementById("checker")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, []);
+    requestAnimationFrame(scrollToChecker);
+  }, [scrollToChecker]);
 
   return (
-    <div className="min-h-[100dvh] bg-slate-950 text-slate-100 app-backdrop">
+    <div className="min-h-[100svh] bg-slate-950 text-slate-100 app-backdrop">
       <Navbar language={lang} setLanguage={setLang} onCtaClick={goChecker} />
       <main>
         <Hero language={lang} onCtaClick={goChecker} onLiveClick={goLive} />
