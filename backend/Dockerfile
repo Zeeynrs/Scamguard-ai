@@ -18,7 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip \
+ && pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu \
+ && grep -v -E "^(torch|torchaudio)==" requirements.txt > /tmp/req.txt \
+ && pip install -r /tmp/req.txt
 
 COPY . .
 
