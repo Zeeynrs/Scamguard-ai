@@ -15,7 +15,7 @@ from app.core.schemas import (
     RiskAssessment,
 )
 from app.core.fusion import compute_risk
-from app.audio.stt import transcribe_bytes
+from app.audio.stt import transcribe_bytes, pcm16_to_wav_bytes
 from app.audio.deepfake import score_audio_bytes
 from app.intent.llm import analyze_intent
 from app.vision.analyzer import FaceAnalyzer
@@ -154,29 +154,32 @@ async def analyze_upload(request: Request, file: UploadFile = File(...)):
 @router.websocket("/analyze/stream")
 async def analyze_stream(websocket: WebSocket):
     """
-    Real-time streaming analysis.
+    Real-time streaming analysis for live video calls.
 
     Protocol (client -> server): JSON text frames
-      {"audio_chunk": "<base64 webm/opus or pcm16>", "video_frame": "<base64 jpeg>", "seq": N}
+      {"audio_chunk": "<base64 raw pcm16 le>", "video_frame": "<base64 jpeg>", "seq": N}
 
-    Server -> client: JSON StreamUpdate with rolling transcript window and risk.
+    Server -> client: JSON StreamUpdate with cumulative transcript and current risk.
 
-    Audio chunks are buffered into a rolling window (~6s); the window is re-analyzed
-    every ~3s for STT + intent, while vision frames are processed per-frame.
+    Audio chunks (raw PCM16 LE, 16kHz mono) are buffered. Every ~4 seconds, a new 3s
+    segment is transcribed and appended to the cumulative transcript. Vision frames
+    are processed per-frame and aggregated over the call duration.
     """
     await websocket.accept()
     start = time.time()
     analyzer = FaceAnalyzer()
 
+    # Cumulative transcript built from segments
+    full_transcript = ""
+    
+    # Audio buffering: we collect PCM samples and transcode to WAV on demand
     audio_buffer = bytearray()
-    audio_suffix = ".webm"
+    last_transcribed_offset = 0  # bytes already sent to STT
+    SEGMENT_BYTES = 16000 * 2 * 3  # 3s @ 16kHz mono 16-bit = 96000 bytes
+    ANALYSIS_INTERVAL = 4.0
     last_analysis = start
-    ANALYSIS_INTERVAL = 3.0
-    WINDOW_SECONDS = 6.0
 
     latest = {
-        "transcript": "",
-        "language": "unknown",
         "audio_score": 0.0,
         "audio_indications": [],
         "intent": IntentAnalysisResult(),
@@ -189,7 +192,7 @@ async def analyze_stream(websocket: WebSocket):
             seq = msg.get("seq", 0)
             now = time.time()
 
-            # --- Audio chunk ingestion ---
+            # --- Audio chunk ingestion (raw PCM16 LE) ---
             if msg.get("audio_chunk"):
                 try:
                     audio_buffer.extend(base64.b64decode(msg["audio_chunk"]))
@@ -209,27 +212,38 @@ async def analyze_stream(websocket: WebSocket):
                 except Exception as e:
                     print(f"[stream] vision error: {e}")
 
-            # --- Periodic audio re-analysis ---
-            if (now - last_analysis) >= ANALYSIS_INTERVAL and len(audio_buffer) > 8000:
-                abytes = bytes(audio_buffer)
-                transcript, language = transcribe_bytes(abytes[-160000:], suffix=audio_suffix,
-                                                        language=settings.stt_language)
-                ascore, aind = score_audio_bytes(abytes[-160000:], suffix=audio_suffix)
-                intent = analyze_intent(transcript) if transcript else IntentAnalysisResult()
+            # --- Periodic audio segment transcription (incremental) ---
+            if (now - last_analysis) >= ANALYSIS_INTERVAL:
+                new_bytes = len(audio_buffer) - last_transcribed_offset
+                if new_bytes >= SEGMENT_BYTES:
+                    # Grab a fresh 3s segment
+                    segment_pcm = bytes(audio_buffer[last_transcribed_offset:last_transcribed_offset + SEGMENT_BYTES])
+                    last_transcribed_offset += SEGMENT_BYTES
 
-                latest.update({
-                    "transcript": transcript,
-                    "language": language,
-                    "audio_score": ascore,
-                    "audio_indications": aind,
-                    "intent": intent,
-                })
+                    # Wrap in WAV and transcribe
+                    try:
+                        wav_bytes = pcm16_to_wav_bytes(segment_pcm, sample_rate=16000, channels=1)
+                        seg_text, _ = transcribe_bytes(wav_bytes, suffix=".wav", language=settings.stt_language)
+                        if seg_text:
+                            full_transcript += (" " if full_transcript else "") + seg_text.strip()
+                        
+                        # Audio deepfake scoring (optional, on the last segment only to save CPU)
+                        ascore, aind = score_audio_bytes(wav_bytes, suffix=".wav")
+                        latest["audio_score"] = ascore
+                        latest["audio_indications"] = aind
+                    except Exception as e:
+                        print(f"[stream] STT/audio error: {e}")
+
+                    # Re-analyze intent on the cumulative transcript
+                    if full_transcript:
+                        latest["intent"] = analyze_intent(full_transcript)
+
                 last_analysis = now
 
             # --- Fuse and emit ---
             audio_result = AudioAnalysisResult(
-                transcript=latest["transcript"],
-                language=latest["language"],
+                transcript=full_transcript,
+                language="auto",
                 deepfake_score=latest["audio_score"],
                 deepfake_indications=latest["audio_indications"],
             )
@@ -237,7 +251,7 @@ async def analyze_stream(websocket: WebSocket):
 
             await websocket.send_json({
                 "seq": seq,
-                "transcript_window": latest["transcript"],
+                "transcript_window": full_transcript,
                 "risk": risk.model_dump(),
                 "elapsed_seconds": round(now - start, 1),
                 "vision": latest["vision"].model_dump(),

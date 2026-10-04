@@ -7,12 +7,29 @@ Fallback: faster-whisper (CTranslate2) running locally on CPU.
 Supports audio files (.wav, .mp3, .ogg, .m4a, .flac, .webm) and raw PCM chunks.
 Handles Indonesian, English, and code-switching automatically.
 """
+import io
 import os
 import tempfile
+import wave
 from typing import Tuple, Optional
 from app.config import settings
 
 _model_cache = None
+
+
+def pcm16_to_wav_bytes(pcm_bytes: bytes, sample_rate: int = 16000, channels: int = 1) -> bytes:
+    """Wrap raw little-endian 16-bit PCM samples in a WAV container.
+
+    Browsers stream microphone audio as raw PCM; Whisper (Groq + local) needs a
+    container with a header, so we synthesize a minimal WAV here.
+    """
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)  # 16-bit
+        w.setframerate(sample_rate)
+        w.writeframes(pcm_bytes)
+    return buf.getvalue()
 
 
 def _get_stt_model():

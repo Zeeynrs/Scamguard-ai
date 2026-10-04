@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import LiveCallMonitor from "@/components/LiveCallMonitor";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -107,6 +108,7 @@ const translations = {
 
 export default function ScamGuardHUD() {
   const [lang, setLang] = useState<Language>("en");
+  const [mode, setMode] = useState<"text" | "upload" | "live">("text");
   const [transcript, setTranscript] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BackendAnalysisReport | null>(null);
@@ -263,6 +265,45 @@ export default function ScamGuardHUD() {
           </div>
         </header>
 
+        {/* Mode Tabs */}
+        <div className="flex gap-2 bg-slate-900 border border-slate-800 rounded-xl p-1">
+          <button
+            onClick={() => setMode("text")}
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
+              mode === "text"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            💬 Text Analysis
+          </button>
+          <button
+            onClick={() => setMode("upload")}
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
+              mode === "upload"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            🎙️ Audio Upload
+          </button>
+          <button
+            onClick={() => setMode("live")}
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
+              mode === "live"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            📹 Live Call Monitor
+          </button>
+        </div>
+
+        {/* Content based on mode */}
+        {mode === "live" ? (
+          <LiveCallMonitor />
+        ) : (
+          <>
         {/* Input Section */}
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6 space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
@@ -275,10 +316,13 @@ export default function ScamGuardHUD() {
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
             placeholder={t.placeholder}
-            className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm resize-none"
+            className={`w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm resize-none ${
+              mode === "upload" ? "hidden" : ""
+            }`}
           />
 
           <div className="flex flex-wrap gap-3">
+            {mode === "text" && (
             <button
               onClick={analyze}
               disabled={loading || !transcript.trim()}
@@ -298,8 +342,10 @@ export default function ScamGuardHUD() {
                 </>
               )}
             </button>
+            )}
 
-            <label className="cursor-pointer bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-5 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2 active:scale-95">
+            {mode === "upload" && (
+            <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2 active:scale-95 shadow-lg">
               <span>🎙️</span> {t.upload_btn}
               <input
                 type="file"
@@ -309,6 +355,7 @@ export default function ScamGuardHUD() {
                 className="hidden"
               />
             </label>
+            )}
           </div>
 
           {error && (
@@ -426,6 +473,8 @@ export default function ScamGuardHUD() {
               </div>
             )}
           </section>
+        )}
+          </>
         )}
       </div>
     </div>
