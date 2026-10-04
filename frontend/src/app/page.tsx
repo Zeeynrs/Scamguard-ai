@@ -5,6 +5,7 @@ import { useState } from "react";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type RiskLevel = "low" | "medium" | "high" | "critical";
+type Language = "en" | "id";
 
 interface BackendAnalysisReport {
   timestamp: string;
@@ -39,11 +40,79 @@ interface BackendAnalysisReport {
   raw_scores?: Record<string, number>;
 }
 
+const translations = {
+  en: {
+    title: "ScamGuard Multimodal",
+    subtitle: "Scam detection: voice analysis, message manipulation, and AI deepfake",
+    badge: "Whisper Small + Heuristic AI",
+    input_section: "Text Input / Upload Voice Note",
+    placeholder: "Type or paste suspicious conversation here... (Example: 'Hello from Bank BCA, suspicious transaction detected. Tell me the OTP code now!')",
+    analyze_btn: "Analyze Text",
+    analyzing: "Analyzing...",
+    upload_btn: "Upload Audio / Voice Note",
+    error_empty: "Transcript cannot be empty",
+    risk_level: "Risk Level",
+    risk_score: "Risk Score",
+    critical: "CRITICAL (SCAM)",
+    high: "HIGH (DANGEROUS)",
+    medium: "MEDIUM (ALERT)",
+    low: "LOW (SAFE)",
+    tactics_detected: "Manipulation Tactics Detected",
+    tactic_label: "Tactic",
+    evidence_header: "Evidence Keywords",
+    recommendation: "Recommended Action",
+    transcript: "Voice Transcript (Whisper AI)",
+    connection_failed: "Failed to analyze: Connection error. Ensure backend is running.",
+    upload_failed: "Upload failed: File upload error.",
+    urgency: "Time pressure",
+    financial_demand: "Financial demand",
+    credential_harvest: "OTP / Credentials",
+    authority_impersonation: "Authority fake",
+    isolation_tactic: "Isolation / Don't hang up",
+    reward_lure: "Prize / Lottery lure",
+    surveillance_pressure: "Surveillance pressure",
+  },
+  id: {
+    title: "ScamGuard Multimodal",
+    subtitle: "Deteksi scam multimodal: suara, manipulasi kalimat, dan deepfake AI",
+    badge: "Whisper Small + Heuristic AI",
+    input_section: "Input Kalimat / Upload Voice Note",
+    placeholder: "Ketik atau paste percakapan mencurigakan di sini... (Contoh: 'Halo dari Bank BCA, ada transaksi mencurigakan. Sebutkan kode OTP sekarang juga!')",
+    analyze_btn: "Analisis Teks",
+    analyzing: "Menganalisis...",
+    upload_btn: "Upload Audio / VN",
+    error_empty: "Transcript tidak boleh kosong",
+    risk_level: "Tingkat Risiko",
+    risk_score: "Skor Risiko",
+    critical: "KRITIS (SCAM)",
+    high: "TINGGI (BAHAYA)",
+    medium: "SEDANG (WASPADA)",
+    low: "RENDAH (AMAN)",
+    tactics_detected: "Taktik Manipulasi Terdeteksi",
+    tactic_label: "Taktik",
+    evidence_header: "Bukti Kata Kunci Coercive",
+    recommendation: "Rekomendasi Tindakan",
+    transcript: "Transkrip Suara (Whisper AI)",
+    connection_failed: "Gagal menganalisis: Koneksi error. Pastikan backend aktif.",
+    upload_failed: "Gagal upload: Error file upload.",
+    urgency: "Tekanan waktu",
+    financial_demand: "Permintaan uang",
+    credential_harvest: "Pencurian OTP/Kredensial",
+    authority_impersonation: "Pura-pura Otoritas/Bank",
+    isolation_tactic: "Isolasi / Jangan Putus Telepon",
+    reward_lure: "Iming-iming Hadiah",
+    surveillance_pressure: "Tekanan Pengawasan",
+  },
+};
+
 export default function ScamGuardHUD() {
+  const [lang, setLang] = useState<Language>("en");
   const [transcript, setTranscript] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BackendAnalysisReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const t = translations[lang];
 
   const tacticLabels: Record<string, { en: string; id: string }> = {
     urgency: { en: "Time pressure", id: "Tekanan waktu" },
@@ -73,7 +142,7 @@ export default function ScamGuardHUD() {
 
   const analyze = async () => {
     if (!transcript.trim()) {
-      setError("Transcript cannot be empty");
+      setError(t.error_empty);
       return;
     }
 
@@ -96,7 +165,7 @@ export default function ScamGuardHUD() {
       setResult(data);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Request failed";
-      setError(`Gagal menganalisis: ${message}. Pastikan backend aktif.`);
+      setError(`${t.connection_failed} (${message})`);
     } finally {
       setLoading(false);
     }
@@ -130,9 +199,18 @@ export default function ScamGuardHUD() {
       }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Upload failed";
-      setError(`Gagal upload / transkrip: ${message}`);
+      setError(`${t.upload_failed} (${message})`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getRiskLevelText = (level: RiskLevel): string => {
+    switch (level) {
+      case "critical": return t.critical;
+      case "high": return t.high;
+      case "medium": return t.medium;
+      default: return t.low;
     }
   };
 
@@ -144,19 +222,44 @@ export default function ScamGuardHUD() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
+        {/* Header with Language Toggle */}
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-6">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
-              <span className="text-3xl">🛡️</span> ScamGuard Multimodal
+              <span className="text-3xl">🛡️</span> {t.title}
             </h1>
             <p className="text-slate-400 text-sm mt-1">
-              Deteksi scam multimodal: suara, manipulasi kalimat, dan deepfake AI
+              {t.subtitle}
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full w-fit">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-slate-300 font-mono">Whisper Small + Heuristic AI</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-slate-300 font-mono">{t.badge}</span>
+            </div>
+            {/* Language Toggle Buttons */}
+            <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+              <button
+                onClick={() => setLang("en")}
+                className={`px-3 py-1 rounded text-xs font-semibold transition ${
+                  lang === "en"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                EN
+              </button>
+              <button
+                onClick={() => setLang("id")}
+                className={`px-3 py-1 rounded text-xs font-semibold transition ${
+                  lang === "id"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                ID
+              </button>
+            </div>
           </div>
         </header>
 
@@ -164,15 +267,14 @@ export default function ScamGuardHUD() {
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6 space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-200 flex items-center gap-2">
-              <span>💬</span> Input Kalimat / Upload Voice Note
+              <span>💬</span> {t.input_section}
             </h2>
-            <span className="text-xs text-slate-500">ID / EN</span>
           </div>
 
           <textarea
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
-            placeholder="Ketik atau paste percakapan mencurigakan di sini... (Contoh: 'Halo selamat siang dari Bank BCA, ada transaksi mencurigakan. Sebutkan kode OTP sekarang juga!')"
+            placeholder={t.placeholder}
             className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm resize-none"
           />
 
@@ -188,17 +290,17 @@ export default function ScamGuardHUD() {
             >
               {loading ? (
                 <>
-                  <span className="animate-spin text-base">⚙️</span> Menganalisis...
+                  <span className="animate-spin text-base">⚙️</span> {t.analyzing}
                 </>
               ) : (
                 <>
-                  <span>🔍</span> Analisis Teks
+                  <span>🔍</span> {t.analyze_btn}
                 </>
               )}
             </button>
 
             <label className="cursor-pointer bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-5 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2 active:scale-95">
-              <span>🎙️</span> Upload Audio / VN
+              <span>🎙️</span> {t.upload_btn}
               <input
                 type="file"
                 accept="audio/*,video/*"
@@ -224,16 +326,13 @@ export default function ScamGuardHUD() {
             <div className={`p-6 rounded-2xl border ${getRiskBadge(riskLevel)} bg-slate-900/90 shadow-2xl`}>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                  <div className="text-xs uppercase tracking-wider font-mono opacity-80">Tingkat Risiko</div>
+                  <div className="text-xs uppercase tracking-wider font-mono opacity-80">{t.risk_level}</div>
                   <div className="text-3xl md:text-4xl font-black capitalize tracking-tight mt-1">
-                    {riskLevel === "critical" && "KRITIS (SCAM)"}
-                    {riskLevel === "high" && "TINGGI (BAHAYA)"}
-                    {riskLevel === "medium" && "SEDANG (WASPADA)"}
-                    {riskLevel === "low" && "RENDAH (AMAN)"}
+                    {getRiskLevelText(riskLevel)}
                   </div>
                 </div>
                 <div className="sm:text-right">
-                  <div className="text-xs uppercase tracking-wider font-mono opacity-80">Skor Risiko</div>
+                  <div className="text-xs uppercase tracking-wider font-mono opacity-80">{t.risk_score}</div>
                   <div className="text-3xl md:text-4xl font-mono font-black mt-1">
                     {(riskScore * 100).toFixed(1)}%
                   </div>
@@ -253,7 +352,7 @@ export default function ScamGuardHUD() {
             {tactics.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider font-mono">
-                  Taktik Manipulasi Terdeteksi ({tactics.length})
+                  {t.tactics_detected} ({tactics.length})
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {tactics.map((tactic, idx) => (
@@ -264,10 +363,10 @@ export default function ScamGuardHUD() {
                       <span className="w-2 h-2 rounded-full bg-red-400 mt-2 shrink-0" />
                       <div>
                         <div className="font-semibold text-sm text-slate-200">
-                          {tacticLabels[tactic]?.id || tactic}
+                          {tacticLabels[tactic]?.[lang] || tactic}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5 font-mono">
-                          {tacticLabels[tactic]?.en || tactic}
+                          {lang === "en" ? tacticLabels[tactic]?.en : tacticLabels[tactic]?.id}
                         </div>
                       </div>
                     </div>
@@ -280,7 +379,7 @@ export default function ScamGuardHUD() {
             {evidence.length > 0 && (
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
                 <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider font-mono flex items-center gap-2">
-                  <span>📌</span> Bukti Kata Kunci Coercive
+                  <span>📌</span> {t.evidence_header}
                 </h3>
                 <ul className="space-y-2">
                   {evidence.map((ev, idx) => (
@@ -300,7 +399,7 @@ export default function ScamGuardHUD() {
             {result.risk?.recommendation && (
               <div className="bg-emerald-950/20 border border-emerald-800/60 rounded-2xl p-5 space-y-2">
                 <h3 className="text-sm font-semibold text-emerald-400 uppercase tracking-wider font-mono flex items-center gap-2">
-                  <span>🛡️</span> Rekomendasi Tindakan
+                  <span>🛡️</span> {t.recommendation}
                 </h3>
                 <p className="text-slate-300 text-sm leading-relaxed">
                   {result.risk.recommendation}
@@ -313,7 +412,7 @@ export default function ScamGuardHUD() {
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs uppercase tracking-wider font-mono text-slate-400">
-                    Transkrip Suara (Whisper AI)
+                    {t.transcript}
                   </h3>
                   {result.audio_result.language && (
                     <span className="text-xs font-mono bg-slate-800 px-2 py-0.5 rounded text-slate-400">
