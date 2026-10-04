@@ -14,10 +14,30 @@ const geistMono = Geist_Mono({
   display: "swap",
 });
 
+const siteUrl = "https://scamguard.parallel-dungeons.site";
+
 export const metadata: Metadata = {
-  title: "ScamGuard Multimodal — Real-time Scam & Deepfake Defense",
+  metadataBase: new URL(siteUrl),
+  title: "ScamGuard — Detect Scams Before They Cost You",
   description:
-    "Real-time defense against AI-powered voice and video call scams: voice analysis, message manipulation detection, and deepfake scoring.",
+    "Analyze suspicious links, messages, and online content with ScamGuard to identify potential scam risks and make safer decisions.",
+  alternates: { canonical: siteUrl },
+  openGraph: {
+    title: "ScamGuard — Detect Scams Before They Cost You",
+    description:
+      "Analyze suspicious links, messages, and online content with ScamGuard to identify potential scam risks and make safer decisions.",
+    url: siteUrl,
+    siteName: "ScamGuard",
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary",
+    title: "ScamGuard — Detect Scams Before They Cost You",
+    description:
+      "Analyze suspicious links, messages, and online content with ScamGuard to identify potential scam risks and make safer decisions.",
+  },
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {

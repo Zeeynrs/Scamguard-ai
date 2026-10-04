@@ -2,25 +2,26 @@
 @import "tw-animate-css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #020617;
+  --foreground: #f1f5f9;
+  --muted: #0f172a;
+  --muted-foreground: #94a3b8;
+  --border: #1e293b;
+  --ring: #3b82f6;
+  --accent: #3b82f6;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-
-  /* Extra-small breakpoint for very narrow phones (tab labels) */
   --breakpoint-xs: 26rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
@@ -32,12 +33,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Smooth scrolling for in-page anchors */
 html {
   scroll-behavior: smooth;
 }
 
-/* Respect reduced-motion: kill all decorative animation */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -49,7 +48,6 @@ html {
   }
 }
 
-/* Thin, theme-matched scrollbars for transcript/evidence panes */
 .scroll-thin {
   scrollbar-width: thin;
   scrollbar-color: rgb(51 65 85) transparent;
@@ -69,9 +67,86 @@ html {
   background-color: rgb(71 85 105);
 }
 
-/* Subtle grid backdrop for the app shell (dark-tech language) */
 .app-backdrop {
   background-image:
-    radial-gradient(60rem 60rem at 50% -10%, rgba(56, 189, 248, 0.06), transparent 60%),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0) 0%, rgba(2, 6, 23, 0.6) 100%);
+    radial-gradient(70rem 40rem at 12% -8%, rgba(59, 130, 246, 0.10), transparent 55%),
+    radial-gradient(50rem 30rem at 92% 8%, rgba(16, 185, 129, 0.05), transparent 50%),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0) 0%, rgba(2, 6, 23, 0.7) 100%);
+}
+
+.glass {
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(51, 65, 85, 0.65);
+}
+
+.glass-strong {
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(51, 65, 85, 0.8);
+}
+
+.glass-accent {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.14), rgba(15, 23, 42, 0.5));
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong,
+  .glass-accent {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgb(15 23 42);
+  }
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 bg-blue-600 text-white hover:bg-blue-500 active:scale-95 shadow-lg shadow-blue-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:active:scale-100 disabled:shadow-none;
+}
+
+.btn-destructive {
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 bg-red-600 text-white hover:bg-red-500 active:scale-95 shadow-lg shadow-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 bg-slate-800 text-slate-100 border border-slate-700 hover:bg-slate-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+}
+
+.focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950;
+}
+
+.card {
+  @apply bg-slate-900/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl shadow-xl;
+}
+
+.card-elevated {
+  @apply bg-slate-900/90 backdrop-blur-2xl border border-slate-800 rounded-2xl shadow-2xl;
+}
+
+.input-field {
+  @apply w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 placeholder-slate-500 text-sm transition-all duration-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.badge {
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-[0.1em];
+}
+
+.badge-critical { @apply bg-red-500/15 text-red-400 border border-red-500/30; }
+.badge-high { @apply bg-orange-500/15 text-orange-400 border border-orange-500/30; }
+.badge-medium { @apply bg-yellow-500/15 text-yellow-400 border border-yellow-500/30; }
+.badge-low { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/30; }
+.badge-blue { @apply bg-blue-500/15 text-blue-400 border border-blue-500/30; }
+
+.progress-bar {
+  @apply w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800;
+}
+
+.progress-fill {
+  @apply h-full rounded-full transition-all duration-700 ease-out;
 }

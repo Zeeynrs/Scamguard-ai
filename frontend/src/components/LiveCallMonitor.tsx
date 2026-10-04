@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   VideoCamera,
   Stop,
@@ -10,6 +10,9 @@ import {
   Eye,
   ChartLineUp,
   Clock,
+  SpinnerGap,
+  Pulse,
+  Waveform,
 } from "@/components/icons";
 
 type RiskLevel = "low" | "medium" | "high" | "critical";
@@ -40,31 +43,39 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const riskTone: Record<
   RiskLevel,
-  { border: string; text: string; bar: string; ring: string }
+  { border: string; text: string; bar: string; glow: string; stroke: string; label: string }
 > = {
   critical: {
-    border: "border-red-500",
+    border: "border-red-500/60",
     text: "text-red-400",
     bar: "bg-red-500",
-    ring: "shadow-[0_0_0_1px_rgba(239,68,68,0.35),0_8px_40px_-12px_rgba(239,68,68,0.5)]",
+    glow: "shadow-[0_0_44px_-10px_rgba(239,68,68,0.55)]",
+    stroke: "stroke-red-500",
+    label: "CRITICAL",
   },
   high: {
-    border: "border-orange-500",
+    border: "border-orange-500/60",
     text: "text-orange-400",
     bar: "bg-orange-500",
-    ring: "shadow-[0_0_0_1px_rgba(249,115,22,0.35),0_8px_40px_-12px_rgba(249,115,22,0.5)]",
+    glow: "shadow-[0_0_44px_-10px_rgba(249,115,22,0.5)]",
+    stroke: "stroke-orange-500",
+    label: "HIGH",
   },
   medium: {
-    border: "border-yellow-500",
+    border: "border-yellow-500/60",
     text: "text-yellow-400",
     bar: "bg-yellow-500",
-    ring: "shadow-[0_0_0_1px_rgba(234,179,8,0.35),0_8px_40px_-12px_rgba(234,179,8,0.45)]",
+    glow: "shadow-[0_0_44px_-10px_rgba(234,179,8,0.45)]",
+    stroke: "stroke-yellow-500",
+    label: "MEDIUM",
   },
   low: {
-    border: "border-emerald-500",
+    border: "border-emerald-500/60",
     text: "text-emerald-400",
     bar: "bg-emerald-500",
-    ring: "shadow-[0_0_0_1px_rgba(16,185,129,0.3),0_8px_40px_-12px_rgba(16,185,129,0.4)]",
+    glow: "shadow-[0_0_44px_-10px_rgba(16,185,129,0.4)]",
+    stroke: "stroke-emerald-500",
+    label: "LOW",
   },
 };
 
@@ -77,6 +88,7 @@ export default function LiveCallMonitor() {
   const [audio, setAudio] = useState<StreamResponse["audio"] | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [inbound, setInbound] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -90,10 +102,17 @@ export default function LiveCallMonitor() {
   const reconnectAttemptsRef = useRef(0);
   const isActiveRef = useRef(false);
   const captureStartedRef = useRef(false);
+  const transcriptRef = useRef<HTMLDivElement>(null);
 
   const start = async () => {
     setError(null);
     setConnecting(true);
+    setInbound(0);
+    setTranscript("");
+    setRisk(null);
+    setVision(null);
+    setAudio(null);
+    setElapsed(0);
     try {
       // Request camera + mic (16kHz mono ideal, browser will resample)
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -149,6 +168,7 @@ export default function LiveCallMonitor() {
       setVision(data.vision);
       setAudio(data.audio);
       setElapsed(data.elapsed_seconds);
+      setInbound((n) => n + 1);
     };
 
     ws.onerror = () => {
@@ -288,6 +308,12 @@ export default function LiveCallMonitor() {
     frameIntervalRef.current = interval as unknown as number;
   };
 
+  // Keep the transcript pinned to the newest text
+  useLayoutEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [transcript]);
+
   useEffect(() => {
     return () => stop();
   }, []);
@@ -297,128 +323,226 @@ export default function LiveCallMonitor() {
   const fmtTime = (s: number) =>
     `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
+  const riskPct = Math.round((risk?.score ?? 0) * 100);
+  const gaugeR = 34;
+  const gaugeC = 2 * Math.PI * gaugeR;
+  const gaugeDash = (gaugeC * Math.max(0.015, risk?.score ?? 0)).toFixed(2);
+
   return (
     <div className="space-y-4 md:space-y-5">
-      {/* Video Preview with Overlay */}
-      <div className="relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-xl">
-        <video
-          ref={videoRef}
-          className="w-full aspect-video bg-black object-cover"
-          muted
-          playsInline
-        />
-        <canvas ref={canvasRef} className="hidden" />
+      {/* ===== Stage: video + risk gauge ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Video */}
+        <div
+          className={`lg:col-span-2 relative bg-slate-900 rounded-2xl overflow-hidden border ${tone.border} ${isActive ? tone.glow : "border-slate-800"} shadow-xl transition-all duration-500`}
+        >
+          <video
+            ref={videoRef}
+            className="w-full aspect-video bg-black object-cover"
+            muted
+            playsInline
+          />
+          <canvas ref={canvasRef} className="hidden" />
 
-        {/* Idle / empty state */}
-        {!isActive && !connecting && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/80 text-center px-6">
-            <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 grid place-items-center">
-              <VideoCamera size={26} weight="duotone" className="text-slate-500" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-300">
-                Live Call Monitor
-              </p>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                Real-time scam detection on your camera and microphone. Nothing
-                leaves this session without analysis.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Connecting skeleton */}
-        {connecting && (
-          <div className="absolute inset-0 grid place-items-center bg-slate-950/85 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3">
-              <span className="w-8 h-8 border-2 border-slate-600 border-t-blue-500 rounded-full animate-spin" />
-              <p className="text-xs font-mono text-slate-400 tracking-wide">
-                Establishing secure session…
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Risk Overlay */}
-        {isActive && risk && (
-          <div className="absolute top-3 right-3 md:top-4 md:right-4 space-y-2 animate-in fade-in slide-in-from-right-4 duration-300">
+          {/* Subtle scanline — signals the capture pipeline is live */}
+          {isActive && (
             <div
-              className={`px-3 py-2 md:px-4 md:py-2.5 rounded-xl border ${tone.border} bg-slate-950/90 backdrop-blur transition-colors duration-500 ${tone.ring}`}
-            >
-              <div className="text-[10px] md:text-xs uppercase tracking-[0.15em] font-mono text-slate-400">
-                Risk Level
-              </div>
-              <div
-                className={`text-xl md:text-2xl font-black capitalize leading-tight transition-colors duration-500 ${tone.text}`}
-              >
-                {risk.level}
-              </div>
-              <div className="text-xs md:text-sm font-mono text-slate-300 tabular-nums">
-                {(risk.score * 100).toFixed(1)}%
-              </div>
+              aria-hidden
+              className="pointer-events-none absolute inset-0 opacity-[0.18] mix-blend-overlay"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(to bottom, rgba(255,255,255,0.35) 0px, rgba(255,255,255,0.35) 1px, transparent 1px, transparent 3px)",
+              }}
+            />
+          )}
+
+          {/* Corner brackets — instrument framing */}
+          {isActive && (
+            <div aria-hidden className="pointer-events-none absolute inset-3 hidden sm:block">
+              {[
+                "top-0 left-0 border-t-2 border-l-2 rounded-tl-md",
+                "top-0 right-0 border-t-2 border-r-2 rounded-tr-md",
+                "bottom-0 left-0 border-b-2 border-l-2 rounded-bl-md",
+                "bottom-0 right-0 border-b-2 border-r-2 rounded-br-md",
+              ].map((pos) => (
+                <span
+                  key={pos}
+                  className={`absolute w-5 h-5 border-white/35 ${pos}`}
+                />
+              ))}
             </div>
+          )}
 
-            {vision && vision.deepfake_score > 0.3 && (
-              <div className="px-3 py-2 rounded-xl bg-red-950/90 border border-red-800 backdrop-blur animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="text-[10px] md:text-xs text-red-300 font-semibold space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                    Video Deepfake: {(vision.deepfake_score * 100).toFixed(0)}%
-                  </div>
-                  {vision.blink_rate !== undefined && vision.blink_rate < 10 && (
-                    <div className="text-[9px] md:text-[10px] opacity-90 flex items-center gap-1 pl-3">
-                      <Eye size={11} weight="bold" /> Blink:{" "}
-                      {vision.blink_rate.toFixed(1)}/min (low)
-                    </div>
-                  )}
-                  {vision.jitter_score > 15 && (
-                    <div className="text-[9px] md:text-[10px] opacity-90 flex items-center gap-1 pl-3">
-                      <ChartLineUp size={11} weight="bold" /> Jitter:{" "}
-                      {vision.jitter_score.toFixed(1)}px
-                    </div>
-                  )}
-                </div>
+          {/* Idle / empty state */}
+          {!isActive && !connecting && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/85 text-center px-6">
+              <div className="w-14 h-14 rounded-2xl bg-slate-900/80 border border-slate-700 grid place-items-center">
+                <VideoCamera size={26} weight="duotone" className="text-slate-400" />
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Timer */}
-        {isActive && (
-          <div className="absolute top-3 left-3 md:top-4 md:left-4 px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur border border-slate-700 animate-in fade-in slide-in-from-left-4 duration-300">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-sm font-mono text-slate-300 tabular-nums flex items-center gap-1.5">
-                <Clock size={13} weight="bold" className="text-slate-500" />
-                {fmtTime(elapsed)}
+              <div>
+                <p className="text-sm font-semibold text-slate-200">Live Call Monitor</p>
+                <p className="text-xs text-slate-500 mt-1.5 max-w-xs leading-relaxed">
+                  Real-time scam detection on your camera and microphone. Nothing
+                  leaves this session without analysis.
+                </p>
+              </div>
+              <span className="badge badge-blue mt-1">
+                <Pulse size={12} weight="bold" />
+                WebSocket · PCM16 16kHz · JPEG 1fps
               </span>
             </div>
+          )}
+
+          {/* Connecting skeleton */}
+          {connecting && (
+            <div className="absolute inset-0 grid place-items-center bg-slate-950/85 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-3">
+                <SpinnerGap size={30} className="text-blue-400 animate-spin" />
+                <p className="text-xs font-mono text-slate-400 tracking-wide">
+                  Establishing secure session…
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Timer + throughput */}
+          {isActive && (
+            <div className="absolute top-3 left-3 md:top-4 md:left-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur border border-slate-700">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-sm font-mono text-slate-200 tabular-nums flex items-center gap-1.5">
+                  <Clock size={13} weight="bold" className="text-slate-500" />
+                  {fmtTime(elapsed)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur border border-slate-700">
+                <Waveform size={13} weight="bold" className="text-blue-400" />
+                <span className="text-[10px] font-mono text-slate-400 tabular-nums">
+                  {inbound} frames analysed
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Video deepfake alert */}
+          {isActive && vision && vision.deepfake_score > 0.3 && (
+            <div
+              className={`absolute bottom-3 right-3 md:bottom-4 md:right-4 w-56 px-3.5 py-3 rounded-xl bg-red-950/90 border ${tone.border} backdrop-blur animate-in fade-in slide-in-from-bottom-4 duration-300 ${tone.glow}`}
+            >
+              <div className="text-[10px] text-red-300 font-semibold uppercase tracking-[0.1em] space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                  Video Deepfake {(vision.deepfake_score * 100).toFixed(0)}%
+                </div>
+                {vision.blink_rate !== undefined && vision.blink_rate < 10 && (
+                  <div className="text-[10px] opacity-90 flex items-center gap-1 pl-3">
+                    <Eye size={11} weight="bold" /> Blink{" "}
+                    {vision.blink_rate.toFixed(1)}/min (low)
+                  </div>
+                )}
+                {vision.jitter_score > 15 && (
+                  <div className="text-[10px] opacity-90 flex items-center gap-1 pl-3">
+                    <ChartLineUp size={11} weight="bold" /> Jitter{" "}
+                    {vision.jitter_score.toFixed(1)}px
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Risk gauge panel */}
+        <div className="glass rounded-2xl p-5 flex flex-col items-center justify-center gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
+          <span className="text-[10px] uppercase tracking-[0.18em] font-mono text-slate-500">
+            Live Risk Signal
+          </span>
+
+          <div className="relative w-28 h-28 grid place-items-center">
+            <svg viewBox="0 0 80 80" className="absolute inset-0 w-full h-full -rotate-90">
+              <circle
+                cx="40"
+                cy="40"
+                r={gaugeR}
+                fill="none"
+                stroke="rgb(15 23 42)"
+                strokeWidth="7"
+              />
+              <circle
+                cx="40"
+                cy="40"
+                r={gaugeR}
+                fill="none"
+                strokeWidth="7"
+                strokeLinecap="round"
+                strokeDasharray={`${gaugeDash} ${gaugeC}`}
+                className={`${tone.stroke} transition-all duration-700 ease-out`}
+              />
+            </svg>
+            <div className="text-center">
+              <div
+                className={`text-3xl font-black font-mono tabular-nums leading-none ${isActive ? tone.text : "text-slate-600"}`}
+              >
+                {isActive ? riskPct : "--"}
+              </div>
+              <div className="text-[9px] uppercase tracking-[0.15em] font-mono text-slate-500 mt-1">
+                percent
+              </div>
+            </div>
           </div>
-        )}
+
+          <div
+            className={`badge ${isActive ? (risk?.level === "low" ? "badge-low" : risk?.level === "medium" ? "badge-medium" : risk?.level === "high" ? "badge-high" : "badge-critical") : "badge-blue"}`}
+          >
+            {isActive ? tone.label : "STANDBY"}
+          </div>
+
+          {isActive && (
+            <div className="w-full space-y-2.5 pt-1">
+              {[
+                {
+                  label: "Audio deepfake",
+                  value: audio?.deepfake_score ?? 0,
+                  color: "bg-orange-500",
+                },
+                {
+                  label: "Video deepfake",
+                  value: vision?.deepfake_score ?? 0,
+                  color: "bg-red-500",
+                },
+              ].map((m) => (
+                <div key={m.label}>
+                  <div className="flex justify-between text-[10px] font-mono text-slate-500 mb-1">
+                    <span className="uppercase tracking-[0.1em]">{m.label}</span>
+                    <span className="tabular-nums text-slate-400">
+                      {(m.value * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="progress-bar h-1.5">
+                    <div
+                      className={`progress-fill ${m.color}`}
+                      style={{ width: `${Math.max(2, m.value * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Controls */}
+      {/* ===== Controls ===== */}
       <div className="flex gap-2 md:gap-3">
         {!isActive && !connecting ? (
-          <button
-            onClick={start}
-            className="flex-1 md:flex-initial px-5 md:px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all duration-200 hover:scale-[1.02] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-          >
+          <button onClick={start} className="btn-primary flex-1 md:flex-initial">
             <VideoCamera size={18} weight="fill" /> Start Live Monitor
           </button>
         ) : connecting ? (
-          <button
-            disabled
-            className="flex-1 md:flex-initial px-5 md:px-6 py-3 bg-slate-800 text-slate-300 rounded-xl font-semibold flex items-center justify-center gap-2 cursor-wait"
-          >
-            <span className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+          <button disabled className="btn-secondary flex-1 md:flex-initial cursor-wait">
+            <SpinnerGap size={17} className="animate-spin" />
             Connecting…
           </button>
         ) : (
-          <button
-            onClick={stop}
-            className="flex-1 md:flex-initial px-5 md:px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 transition-all duration-200 hover:scale-[1.02] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-          >
+          <button onClick={stop} className="btn-destructive flex-1 md:flex-initial">
             <Stop size={18} weight="fill" /> Stop
           </button>
         )}
@@ -426,7 +550,7 @@ export default function LiveCallMonitor() {
 
       {/* Error */}
       {error && (
-        <div className="p-3.5 md:p-4 bg-red-950/40 border border-red-800 rounded-xl text-red-300 text-xs md:text-sm animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="p-3.5 md:p-4 glass bg-red-950/30 border-red-800/70 rounded-xl text-red-300 text-xs md:text-sm animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-start gap-2.5">
             <Warning size={18} weight="fill" className="text-red-400 shrink-0 mt-0.5" />
             <span>{error}</span>
@@ -436,14 +560,26 @@ export default function LiveCallMonitor() {
 
       {/* Live Transcript */}
       {transcript && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h3 className="text-xs md:text-sm font-semibold text-slate-300 uppercase tracking-[0.12em] font-mono flex items-center gap-2">
-            <ChatCircleDots size={16} weight="fill" className="text-blue-400" />{" "}
-            Live Transcript
-          </h3>
-          <p className="text-slate-200 text-sm leading-relaxed border-l-2 border-slate-700 pl-3.5">
+        <div className="card p-4 md:p-5 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs md:text-sm font-semibold text-slate-300 uppercase tracking-[0.12em] font-mono flex items-center gap-2">
+              <ChatCircleDots size={16} weight="fill" className="text-blue-400" />
+              Live Transcript
+            </h3>
+            {isActive && (
+              <span className="badge badge-blue">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                streaming
+              </span>
+            )}
+          </div>
+
+          <div
+            ref={transcriptRef}
+            className="max-h-56 overflow-y-auto scroll-thin pr-2 text-slate-200 text-sm leading-relaxed border-l-2 border-blue-500/40 pl-3.5"
+          >
             {transcript}
-          </p>
+          </div>
 
           {/* Audio deepfake warning */}
           {audio && audio.deepfake_score > 0.3 && (
@@ -469,13 +605,11 @@ export default function LiveCallMonitor() {
 
       {/* Recommendation */}
       {risk?.recommendation && (
-        <div className="bg-emerald-950/20 border border-emerald-800/60 rounded-2xl p-4 md:p-5 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="glass bg-emerald-950/20 border-emerald-800/50 rounded-2xl p-4 md:p-5 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <h3 className="text-xs md:text-sm font-semibold text-emerald-400 uppercase tracking-[0.12em] font-mono flex items-center gap-2">
             <ShieldCheck size={16} weight="fill" /> Recommendation
           </h3>
-          <p className="text-slate-300 text-sm leading-relaxed">
-            {risk.recommendation}
-          </p>
+          <p className="text-slate-300 text-sm leading-relaxed">{risk.recommendation}</p>
         </div>
       )}
     </div>
