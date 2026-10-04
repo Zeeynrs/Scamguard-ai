@@ -25,10 +25,12 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3:8b-instruct"
 
     # STT
+    stt_provider: str = "auto"  # auto | groq | local
     whisper_model: str = "base"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     stt_language: str = "auto"
+    groq_stt_model: str = "whisper-large-v3-turbo"
 
     # Deepfake
     deepfake_enabled: bool = True
