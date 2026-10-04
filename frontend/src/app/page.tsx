@@ -1,55 +1,74 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type RiskLevel = "low" | "medium" | "high" | "critical";
-type ScamTactic = "urgency" | "financial_demand" | "credential_harvest" | "authority_impersonation" | "isolation_tactic" | "reward_lure" | "surveillance_pressure";
 
-interface AnalysisResult {
-  risk_score: number;
-  level: RiskLevel;
-  tactics: string[];
-  evidence: string[];
-  recommendation: string;
-  transcript?: string;
-  language?: string;
-  audio_deepfake_score?: number;
-  is_scam: boolean;
+interface BackendAnalysisReport {
+  timestamp: string;
+  mode: string;
+  audio_result?: {
+    transcript?: string;
+    language?: string;
+    deepfake_score?: number;
+    deepfake_indications?: string[];
+  };
+  vision_result?: {
+    face_detected?: boolean;
+    deepfake_score?: number;
+  };
+  intent_result?: {
+    is_scam: boolean;
+    confidence: number;
+    tactics_detected: string[];
+    evidence: string[];
+    risk_level: string;
+  };
+  risk: {
+    score: number;
+    level: RiskLevel;
+    weighted_intent_llm: number;
+    weighted_intent_rules: number;
+    weighted_audio: number;
+    weighted_video: number;
+    indications: string[];
+    recommendation: string;
+  };
+  raw_scores?: Record<string, number>;
 }
 
 export default function ScamGuardHUD() {
   const [transcript, setTranscript] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [result, setResult] = useState<BackendAnalysisReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Map tactics to readable labels (bilingual)
   const tacticLabels: Record<string, { en: string; id: string }> = {
     urgency: { en: "Time pressure", id: "Tekanan waktu" },
     financial_demand: { en: "Financial demand", id: "Permintaan uang" },
-    credential_harvest: { en: "OTP/credentials", id: "OTP/credential" },
-    authority_impersonation: { en: "Authority fake", id: "Pura-pura otoritas" },
-    isolation_tactic: { en: "Don't hang up", id: "Jangan putus telepon" },
-    reward_lure: { en: "Prize/lure", id: "Hadiah/penggoda" },
-    surveillance_pressure: { en: "Surveillance", id: "Pengawasan" },
+    credential_harvest: { en: "OTP / Credentials", id: "Pencurian OTP/Kredensial" },
+    authority_impersonation: { en: "Authority fake", id: "Pura-pura Otoritas/Bank" },
+    isolation_tactic: { en: "Isolation / Don't hang up", id: "Isolasi / Jangan Putus Telepon" },
+    reward_lure: { en: "Prize / Lottery lure", id: "Iming-iming Hadiah" },
+    surveillance_pressure: { en: "Surveillance pressure", id: "Tekanan Pengawasan" },
   };
 
-  const getRiskColor = (level: RiskLevel) => {
+  const getRiskBadge = (level: RiskLevel) => {
     switch (level) {
-      case "critical": return "text-red-600 bg-red-100 border-red-500";
-      case "high": return "text-orange-600 bg-orange-100 border-orange-500";
-      case "medium": return "text-yellow-600 bg-yellow-100 border-yellow-500";
-      default: return "text-green-600 bg-green-100 border-green-500";
+      case "critical": return "bg-red-500/20 text-red-400 border-red-500";
+      case "high": return "bg-orange-500/20 text-orange-400 border-orange-500";
+      case "medium": return "bg-yellow-500/20 text-yellow-400 border-yellow-500";
+      default: return "bg-emerald-500/20 text-emerald-400 border-emerald-500";
     }
   };
 
   const getBarColor = (score: number) => {
-    if (score >= 0.7) return "bg-red-600";
+    if (score >= 0.7) return "bg-red-500";
     if (score >= 0.4) return "bg-orange-500";
     if (score >= 0.15) return "bg-yellow-500";
-    return "bg-green-500";
+    return "bg-emerald-500";
   };
 
   const analyze = async () => {
@@ -69,10 +88,15 @@ export default function ScamGuardHUD() {
         body: JSON.stringify({ text: transcript, deepfake_audio_hint: 0, deepfake_video_hint: 0 }),
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
       const data = await response.json();
       setResult(data);
-    } catch (e) {
-      setError("Connection failed. Is backend running at http://localhost:8000?");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Request failed";
+      setError(`Gagal menganalisis: ${message}. Pastikan backend aktif.`);
     } finally {
       setLoading(false);
     }
@@ -94,129 +118,178 @@ export default function ScamGuardHUD() {
         method: "POST",
         body: formData,
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
       const data = await response.json();
       setResult(data);
-    } catch (e) {
-      setError("File upload failed. Is backend running?");
+      if (data.audio_result?.transcript) {
+        setTranscript(data.audio_result.transcript);
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Upload failed";
+      setError(`Gagal upload / transkrip: ${message}`);
     } finally {
       setLoading(false);
     }
   };
 
+  const tactics = result?.intent_result?.tactics_detected || [];
+  const evidence = result?.intent_result?.evidence || [];
+  const riskScore = result?.risk?.score ?? 0;
+  const riskLevel = result?.risk?.level ?? "low";
+
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-6">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <header className="flex items-center justify-between mb-8">
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-6">
           <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-2">
-              <span className="text-4xl">🛡</span> ScamGuard Multimodal
+            <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
+              <span className="text-3xl">🛡️</span> ScamGuard Multimodal
             </h1>
-            <p className="text-slate-400">Real-time voice call & voice note analysis</p>
+            <p className="text-slate-400 text-sm mt-1">
+              Deteksi scam multimodal: suara, manipulasi kalimat, dan deepfake AI
+            </p>
           </div>
-          <div className="text-right">
-            <div className="text-sm text-slate-400">Bilingual</div>
-            <div className="text-lg font-semibold">ID + EN</div>
+          <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full w-fit">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-slate-300 font-mono">Whisper Small + Heuristic AI</span>
           </div>
         </header>
 
         {/* Input Section */}
-        <section className="bg-slate-800 rounded-xl p-6 mb-6 border border-slate-700">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <span>🎤</span> Input Analysis
-          </h2>
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-200 flex items-center gap-2">
+              <span>💬</span> Input Kalimat / Upload Voice Note
+            </h2>
+            <span className="text-xs text-slate-500">ID / EN</span>
+          </div>
 
           <textarea
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
-            placeholder="Paste transcript or type voice note text here..."
-            className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-4 text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
+            placeholder="Ketik atau paste percakapan mencurigakan di sini... (Contoh: 'Halo selamat siang dari Bank BCA, ada transaksi mencurigakan. Sebutkan kode OTP sekarang juga!')"
+            className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm resize-none"
           />
 
-          <div className="flex gap-3 mt-4">
-            <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg font-medium transition flex items-center gap-2">
-              <span>📁</span> Upload Voice Note
-              <input type="file" accept="audio/*,video/*" onChange={uploadFile} className="hidden" />
-            </label>
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={analyze}
               disabled={loading || !transcript.trim()}
-              className={`px-5 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+              className={`px-5 py-2.5 rounded-xl font-medium text-sm transition flex items-center gap-2 shadow-lg ${
                 loading || !transcript.trim()
-                  ? "bg-slate-700 cursor-not-allowed"
-                  : "bg-emerald-600 hover:bg-emerald-700"
+                  ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-800"
+                  : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20 active:scale-95"
               }`}
             >
               {loading ? (
                 <>
-                  <span className="animate-spin">⏳</span> Analyzing...
+                  <span className="animate-spin text-base">⚙️</span> Menganalisis...
                 </>
               ) : (
-                <span>🔍 Analyze</span>
+                <>
+                  <span>🔍</span> Analisis Teks
+                </>
               )}
             </button>
+
+            <label className="cursor-pointer bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-5 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2 active:scale-95">
+              <span>🎙️</span> Upload Audio / VN
+              <input
+                type="file"
+                accept="audio/*,video/*"
+                onChange={uploadFile}
+                disabled={loading}
+                className="hidden"
+              />
+            </label>
           </div>
 
           {error && (
-            <div className="mt-3 p-3 bg-red-900/30 border border-red-700 rounded-lg text-red-300 text-sm">
-              {error}
+            <div className="p-3.5 bg-red-950/40 border border-red-800/80 rounded-xl text-red-300 text-xs md:text-sm flex items-start gap-2">
+              <span className="text-base leading-none">⚠️</span>
+              <p>{error}</p>
             </div>
           )}
         </section>
 
         {/* Results */}
         {result && (
-          <section className="animate-fade-in">
-            {/* Risk Score Banner */}
-            <div className={`rounded-xl p-6 mb-6 border-2 ${getRiskColor(result.level)}`}>
-              <div className="flex items-center justify-between mb-4">
+          <section className="space-y-6 animate-fade-in">
+            {/* Risk Banner */}
+            <div className={`p-6 rounded-2xl border ${getRiskBadge(riskLevel)} bg-slate-900/90 shadow-2xl`}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                  <div className="text-sm opacity-75 uppercase tracking-wider">Risk Level</div>
-                  <div className="text-4xl font-bold capitalize">{result.level}</div>
+                  <div className="text-xs uppercase tracking-wider font-mono opacity-80">Tingkat Risiko</div>
+                  <div className="text-3xl md:text-4xl font-black capitalize tracking-tight mt-1">
+                    {riskLevel === "critical" && "KRITIS (SCAM)"}
+                    {riskLevel === "high" && "TINGGI (BAHAYA)"}
+                    {riskLevel === "medium" && "SEDANG (WASPADA)"}
+                    {riskLevel === "low" && "RENDAH (AMAN)"}
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-sm opacity-75 uppercase tracking-wider">Confidence</div>
-                  <div className="text-4xl font-bold">{(result.risk_score * 100).toFixed(0)}%</div>
+                <div className="sm:text-right">
+                  <div className="text-xs uppercase tracking-wider font-mono opacity-80">Skor Risiko</div>
+                  <div className="text-3xl md:text-4xl font-mono font-black mt-1">
+                    {(riskScore * 100).toFixed(1)}%
+                  </div>
                 </div>
               </div>
 
-              {/* Progress Bar */}
-              <div className="h-4 bg-slate-900/50 rounded-full overflow-hidden">
+              {/* Progress bar */}
+              <div className="w-full bg-slate-950 h-3 rounded-full mt-5 overflow-hidden p-0.5 border border-slate-800">
                 <div
-                  className={`h-full ${getBarColor(result.risk_score)} transition-all duration-500`}
-                  style={{ width: `${result.risk_score * 100}%` }}
+                  className={`h-full rounded-full transition-all duration-700 ${getBarColor(riskScore)}`}
+                  style={{ width: `${Math.min(100, Math.max(5, riskScore * 100))}%` }}
                 />
               </div>
             </div>
 
             {/* Tactics Grid */}
-            {result.tactics.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                {result.tactics.map((tactic, i) => (
-                  <div key={i} className="bg-slate-800 rounded-lg p-4 border border-slate-700 flex items-center gap-3">
-                    <div className="w-2 h-8 bg-red-500 rounded-full" />
-                    <div>
-                      <div className="text-sm text-slate-400">Tactic Detected</div>
-                      <div className="font-semibold capitalize">
-                        {tacticLabels[tactic]?.id || tacticLabels[tactic]?.en || tactic.replace(/_/g, " ")}
+            {tactics.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider font-mono">
+                  Taktik Manipulasi Terdeteksi ({tactics.length})
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {tactics.map((tactic, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-start gap-3"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-red-400 mt-2 shrink-0" />
+                      <div>
+                        <div className="font-semibold text-sm text-slate-200">
+                          {tacticLabels[tactic]?.id || tactic}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5 font-mono">
+                          {tacticLabels[tactic]?.en || tactic}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Evidence Quotes */}
-            {result.evidence.length > 0 && (
-              <div className="bg-slate-800 rounded-xl p-6 mb-6 border border-slate-700">
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <span>📝</span> Evidence
+            {evidence.length > 0 && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider font-mono flex items-center gap-2">
+                  <span>📌</span> Bukti Kata Kunci Coercive
                 </h3>
                 <ul className="space-y-2">
-                  {result.evidence.map((ev, i) => (
-                    <li key={i} className="flex items-start gap-2 text-slate-300">
-                      <span className="text-slate-500 mt-1">›</span>
-                      <span>"{ev}"</span>
+                  {evidence.map((ev, idx) => (
+                    <li
+                      key={idx}
+                      className="bg-slate-950 border border-slate-800/80 px-3.5 py-2.5 rounded-lg text-xs md:text-sm font-mono text-slate-300 flex items-center gap-2"
+                    >
+                      <span className="text-red-400">›</span>
+                      <span>{ev}</span>
                     </li>
                   ))}
                 </ul>
@@ -224,18 +297,33 @@ export default function ScamGuardHUD() {
             )}
 
             {/* Recommendation */}
-            <div className="bg-emerald-900/20 rounded-xl p-6 border border-emerald-700/50">
-              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <span>💡</span> Recommendation
-              </h3>
-              <p className="text-slate-200">{result.recommendation}</p>
-            </div>
+            {result.risk?.recommendation && (
+              <div className="bg-emerald-950/20 border border-emerald-800/60 rounded-2xl p-5 space-y-2">
+                <h3 className="text-sm font-semibold text-emerald-400 uppercase tracking-wider font-mono flex items-center gap-2">
+                  <span>🛡️</span> Rekomendasi Tindakan
+                </h3>
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  {result.risk.recommendation}
+                </p>
+              </div>
+            )}
 
-            {/* Transcript (if available) */}
-            {result.transcript && (
-              <div className="bg-slate-800 rounded-xl p-6 mt-6 border border-slate-700">
-                <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-2">Transcript ({result.language})</h3>
-                <p className="text-slate-300 italic">"{result.transcript}"</p>
+            {/* Transcript (jika dari Audio Upload) */}
+            {result.audio_result?.transcript && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs uppercase tracking-wider font-mono text-slate-400">
+                    Transkrip Suara (Whisper AI)
+                  </h3>
+                  {result.audio_result.language && (
+                    <span className="text-xs font-mono bg-slate-800 px-2 py-0.5 rounded text-slate-400">
+                      {result.audio_result.language}
+                    </span>
+                  )}
+                </div>
+                <p className="text-slate-300 text-sm italic font-serif">
+                  "{result.audio_result.transcript}"
+                </p>
               </div>
             )}
           </section>
