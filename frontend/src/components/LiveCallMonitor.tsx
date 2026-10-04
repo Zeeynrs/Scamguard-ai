@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  VideoCamera,
+  Stop,
+  Warning,
+  ShieldCheck,
+  ChatCircleDots,
+  Eye,
+  ChartLineUp,
+  Clock,
+} from "@/components/icons";
 
 type RiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -27,6 +37,36 @@ interface StreamResponse {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const riskTone: Record<
+  RiskLevel,
+  { border: string; text: string; bar: string; ring: string }
+> = {
+  critical: {
+    border: "border-red-500",
+    text: "text-red-400",
+    bar: "bg-red-500",
+    ring: "shadow-[0_0_0_1px_rgba(239,68,68,0.35),0_8px_40px_-12px_rgba(239,68,68,0.5)]",
+  },
+  high: {
+    border: "border-orange-500",
+    text: "text-orange-400",
+    bar: "bg-orange-500",
+    ring: "shadow-[0_0_0_1px_rgba(249,115,22,0.35),0_8px_40px_-12px_rgba(249,115,22,0.5)]",
+  },
+  medium: {
+    border: "border-yellow-500",
+    text: "text-yellow-400",
+    bar: "bg-yellow-500",
+    ring: "shadow-[0_0_0_1px_rgba(234,179,8,0.35),0_8px_40px_-12px_rgba(234,179,8,0.45)]",
+  },
+  low: {
+    border: "border-emerald-500",
+    text: "text-emerald-400",
+    bar: "bg-emerald-500",
+    ring: "shadow-[0_0_0_1px_rgba(16,185,129,0.3),0_8px_40px_-12px_rgba(16,185,129,0.4)]",
+  },
+};
 
 export default function LiveCallMonitor() {
   const [isActive, setIsActive] = useState(false);
@@ -96,14 +136,14 @@ export default function LiveCallMonitor() {
 
     ws.onmessage = (event) => {
       const data: StreamResponse = JSON.parse(event.data);
-      
+
       // Handle server-sent errors (e.g., max duration)
       if ("error" in data) {
-        setError((data as any).error);
+        setError((data as unknown as { error: string }).error);
         stop();
         return;
       }
-      
+
       setTranscript(data.transcript_window);
       setRisk(data.risk);
       setVision(data.vision);
@@ -120,13 +160,18 @@ export default function LiveCallMonitor() {
 
     ws.onclose = () => {
       if (!isActiveRef.current) return; // user stopped manually
-      
+
       // Auto-reconnect with exponential backoff (max 3 attempts)
       if (reconnectAttemptsRef.current < 3) {
         reconnectAttemptsRef.current++;
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 8000);
-        setError(`Connection lost. Reconnecting in ${delay / 1000}s... (${reconnectAttemptsRef.current}/3)`);
-        
+        const delay = Math.min(
+          1000 * Math.pow(2, reconnectAttemptsRef.current - 1),
+          8000
+        );
+        setError(
+          `Connection lost. Reconnecting in ${delay / 1000}s... (${reconnectAttemptsRef.current}/3)`
+        );
+
         reconnectTimeoutRef.current = window.setTimeout(() => {
           if (streamRef.current && isActiveRef.current) {
             connectWebSocket(streamRef.current);
@@ -158,7 +203,7 @@ export default function LiveCallMonitor() {
     audioContextRef.current = null;
 
     if (videoRef.current) videoRef.current.srcObject = null;
-    
+
     reconnectAttemptsRef.current = 0;
     captureStartedRef.current = false;
   };
@@ -247,36 +292,15 @@ export default function LiveCallMonitor() {
     return () => stop();
   }, []);
 
-  const getRiskColor = (level: RiskLevel) => {
-    switch (level) {
-      case "critical":
-        return "bg-red-500";
-      case "high":
-        return "bg-orange-500";
-      case "medium":
-        return "bg-yellow-500";
-      default:
-        return "bg-emerald-500";
-    }
-  };
+  const tone = riskTone[risk?.level ?? "low"];
 
-  const getRiskBorder = (level: RiskLevel) => {
-    switch (level) {
-      case "critical":
-        return "border-red-500";
-      case "high":
-        return "border-orange-500";
-      case "medium":
-        return "border-yellow-500";
-      default:
-        return "border-emerald-500";
-    }
-  };
+  const fmtTime = (s: number) =>
+    `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div className="space-y-4 md:space-y-5">
       {/* Video Preview with Overlay */}
-      <div className="relative bg-slate-900 rounded-xl md:rounded-2xl overflow-hidden border border-slate-800 shadow-xl">
+      <div className="relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-xl">
         <video
           ref={videoRef}
           className="w-full aspect-video bg-black object-cover"
@@ -285,37 +309,73 @@ export default function LiveCallMonitor() {
         />
         <canvas ref={canvasRef} className="hidden" />
 
+        {/* Idle / empty state */}
+        {!isActive && !connecting && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/80 text-center px-6">
+            <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 grid place-items-center">
+              <VideoCamera size={26} weight="duotone" className="text-slate-500" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-300">
+                Live Call Monitor
+              </p>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                Real-time scam detection on your camera and microphone. Nothing
+                leaves this session without analysis.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Connecting skeleton */}
+        {connecting && (
+          <div className="absolute inset-0 grid place-items-center bg-slate-950/85 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3">
+              <span className="w-8 h-8 border-2 border-slate-600 border-t-blue-500 rounded-full animate-spin" />
+              <p className="text-xs font-mono text-slate-400 tracking-wide">
+                Establishing secure session…
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Risk Overlay */}
         {isActive && risk && (
-          <div className="absolute top-2 right-2 md:top-4 md:right-4 space-y-2 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="absolute top-3 right-3 md:top-4 md:right-4 space-y-2 animate-in fade-in slide-in-from-right-4 duration-300">
             <div
-              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg md:rounded-xl border-2 ${getRiskBorder(
-                risk.level
-              )} bg-slate-950/90 backdrop-blur transition-all duration-500`}
+              className={`px-3 py-2 md:px-4 md:py-2.5 rounded-xl border ${tone.border} bg-slate-950/90 backdrop-blur transition-colors duration-500 ${tone.ring}`}
             >
-              <div className="text-[10px] md:text-xs uppercase tracking-wider font-mono text-slate-400">
+              <div className="text-[10px] md:text-xs uppercase tracking-[0.15em] font-mono text-slate-400">
                 Risk Level
               </div>
-              <div className="text-xl md:text-2xl font-black text-white capitalize transition-all duration-300">
+              <div
+                className={`text-xl md:text-2xl font-black capitalize leading-tight transition-colors duration-500 ${tone.text}`}
+              >
                 {risk.level}
               </div>
-              <div className="text-xs md:text-sm font-mono text-slate-300">
+              <div className="text-xs md:text-sm font-mono text-slate-300 tabular-nums">
                 {(risk.score * 100).toFixed(1)}%
               </div>
             </div>
 
             {vision && vision.deepfake_score > 0.3 && (
-              <div className="px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg md:rounded-xl bg-red-950/90 border border-red-800 backdrop-blur animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="text-[10px] md:text-xs text-red-300 font-semibold space-y-0.5">
-                  <div className="flex items-center gap-1">
+              <div className="px-3 py-2 rounded-xl bg-red-950/90 border border-red-800 backdrop-blur animate-in fade-in slide-in-from-right-4 duration-300">
+                <div className="text-[10px] md:text-xs text-red-300 font-semibold space-y-1">
+                  <div className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                     Video Deepfake: {(vision.deepfake_score * 100).toFixed(0)}%
                   </div>
                   {vision.blink_rate !== undefined && vision.blink_rate < 10 && (
-                    <div className="text-[9px] md:text-[10px] opacity-90">👁️ Blink: {vision.blink_rate.toFixed(1)}/min (low)</div>
+                    <div className="text-[9px] md:text-[10px] opacity-90 flex items-center gap-1 pl-3">
+                      <Eye size={11} weight="bold" /> Blink:{" "}
+                      {vision.blink_rate.toFixed(1)}/min (low)
+                    </div>
                   )}
                   {vision.jitter_score > 15 && (
-                    <div className="text-[9px] md:text-[10px] opacity-90">📊 Jitter: {vision.jitter_score.toFixed(1)}px</div>
+                    <div className="text-[9px] md:text-[10px] opacity-90 flex items-center gap-1 pl-3">
+                      <ChartLineUp size={11} weight="bold" /> Jitter:{" "}
+                      {vision.jitter_score.toFixed(1)}px
+                    </div>
                   )}
                 </div>
               </div>
@@ -325,11 +385,12 @@ export default function LiveCallMonitor() {
 
         {/* Timer */}
         {isActive && (
-          <div className="absolute top-2 left-2 md:top-4 md:left-4 px-2.5 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg bg-slate-950/90 backdrop-blur border border-slate-700 animate-in fade-in slide-in-from-left-4 duration-300">
+          <div className="absolute top-3 left-3 md:top-4 md:left-4 px-3 py-1.5 rounded-lg bg-slate-950/90 backdrop-blur border border-slate-700 animate-in fade-in slide-in-from-left-4 duration-300">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-sm font-mono text-slate-300">
-                {Math.floor(elapsed / 60)}:{String(Math.floor(elapsed % 60)).padStart(2, "0")}
+              <span className="text-sm font-mono text-slate-300 tabular-nums flex items-center gap-1.5">
+                <Clock size={13} weight="bold" className="text-slate-500" />
+                {fmtTime(elapsed)}
               </span>
             </div>
           </div>
@@ -341,33 +402,33 @@ export default function LiveCallMonitor() {
         {!isActive && !connecting ? (
           <button
             onClick={start}
-            className="flex-1 md:flex-initial px-4 md:px-6 py-2.5 md:py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg md:rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg transition-all duration-200 hover:scale-105 active:scale-95"
+            className="flex-1 md:flex-initial px-5 md:px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all duration-200 hover:scale-[1.02] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
-            <span>📹</span> Start Live Monitor
+            <VideoCamera size={18} weight="fill" /> Start Live Monitor
           </button>
         ) : connecting ? (
           <button
             disabled
-            className="flex-1 md:flex-initial px-4 md:px-6 py-2.5 md:py-3 bg-slate-700 text-slate-300 rounded-lg md:rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg cursor-wait"
+            className="flex-1 md:flex-initial px-5 md:px-6 py-3 bg-slate-800 text-slate-300 rounded-xl font-semibold flex items-center justify-center gap-2 cursor-wait"
           >
-            <span className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-            Connecting...
+            <span className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+            Connecting…
           </button>
         ) : (
           <button
             onClick={stop}
-            className="flex-1 md:flex-initial px-4 md:px-6 py-2.5 md:py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg md:rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg transition-all duration-200 hover:scale-105 active:scale-95"
+            className="flex-1 md:flex-initial px-5 md:px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 transition-all duration-200 hover:scale-[1.02] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
-            <span>⏹️</span> Stop
+            <Stop size={18} weight="fill" /> Stop
           </button>
         )}
       </div>
 
       {/* Error */}
       {error && (
-        <div className="p-3 md:p-4 bg-red-950/40 border border-red-800 rounded-lg md:rounded-xl text-red-300 text-xs md:text-sm animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-start gap-2">
-            <span className="text-base shrink-0">⚠️</span>
+        <div className="p-3.5 md:p-4 bg-red-950/40 border border-red-800 rounded-xl text-red-300 text-xs md:text-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-start gap-2.5">
+            <Warning size={18} weight="fill" className="text-red-400 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         </div>
@@ -375,24 +436,30 @@ export default function LiveCallMonitor() {
 
       {/* Live Transcript */}
       {transcript && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl md:rounded-2xl p-4 md:p-5 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h3 className="text-xs md:text-sm font-semibold text-slate-300 uppercase tracking-wider font-mono flex items-center gap-2">
-            <span>💬</span> Live Transcript
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <h3 className="text-xs md:text-sm font-semibold text-slate-300 uppercase tracking-[0.12em] font-mono flex items-center gap-2">
+            <ChatCircleDots size={16} weight="fill" className="text-blue-400" />{" "}
+            Live Transcript
           </h3>
-          <p className="text-slate-200 text-xs md:text-sm leading-relaxed italic font-serif">
-            "{transcript}"
+          <p className="text-slate-200 text-sm leading-relaxed border-l-2 border-slate-700 pl-3.5">
+            {transcript}
           </p>
-          
+
           {/* Audio deepfake warning */}
           {audio && audio.deepfake_score > 0.3 && (
-            <div className="mt-3 px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg bg-orange-950/40 border border-orange-800/60 animate-in fade-in duration-300">
+            <div className="px-3 py-2 rounded-lg bg-orange-950/40 border border-orange-800/60 animate-in fade-in duration-300">
               <div className="text-[10px] md:text-xs text-orange-300 font-semibold space-y-1">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
                   Audio Deepfake: {(audio.deepfake_score * 100).toFixed(0)}%
                 </div>
                 {audio.deepfake_indications?.slice(0, 2).map((ind, i) => (
-                  <div key={i} className="text-[9px] md:text-[10px] text-orange-400/80 pl-3">• {ind}</div>
+                  <div
+                    key={i}
+                    className="text-[9px] md:text-[10px] text-orange-400/80 pl-3.5"
+                  >
+                    • {ind}
+                  </div>
                 ))}
               </div>
             </div>
@@ -402,11 +469,13 @@ export default function LiveCallMonitor() {
 
       {/* Recommendation */}
       {risk?.recommendation && (
-        <div className="bg-emerald-950/20 border border-emerald-800/60 rounded-xl md:rounded-2xl p-4 md:p-5 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h3 className="text-xs md:text-sm font-semibold text-emerald-400 uppercase tracking-wider font-mono flex items-center gap-2">
-            <span>🛡️</span> Recommendation
+        <div className="bg-emerald-950/20 border border-emerald-800/60 rounded-2xl p-4 md:p-5 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <h3 className="text-xs md:text-sm font-semibold text-emerald-400 uppercase tracking-[0.12em] font-mono flex items-center gap-2">
+            <ShieldCheck size={16} weight="fill" /> Recommendation
           </h3>
-          <p className="text-slate-300 text-xs md:text-sm leading-relaxed">{risk.recommendation}</p>
+          <p className="text-slate-300 text-sm leading-relaxed">
+            {risk.recommendation}
+          </p>
         </div>
       )}
     </div>
