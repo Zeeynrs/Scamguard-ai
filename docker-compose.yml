@@ -3,28 +3,49 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: scamguard-backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
       - .env
     volumes:
-      - ./backend:/app
-      - ./sample_data:/app/sample_data
-    environment:
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
+      - hf-cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/health\")'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scamguard-bot
     restart: unless-stopped
+    command: ["python", "-m", "app.bot"]
+    env_file:
+      - .env
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    depends_on:
+      backend:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: scamguard-frontend
+    restart: unless-stopped
     ports:
       - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
-      - backend
-    restart: unless-stopped
-    profiles:
-      - full   # optional until frontend exists: `docker compose --profile full up`
+      backend:
+        condition: service_healthy
+
+volumes:
+  hf-cache:

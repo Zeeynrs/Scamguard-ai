@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 type RiskLevel = "low" | "medium" | "high" | "critical";
 type ScamTactic = "urgency" | "financial_demand" | "credential_harvest" | "authority_impersonation" | "isolation_tactic" | "reward_lure" | "surveillance_pressure";
 
@@ -61,7 +63,7 @@ export default function ScamGuardHUD() {
     setResult(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/analyze/text", {
+      const response = await fetch(`${API_BASE}/api/analyze/text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: transcript, deepfake_audio_hint: 0, deepfake_video_hint: 0 }),
@@ -88,7 +90,7 @@ export default function ScamGuardHUD() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://localhost:8000/api/analyze/upload", {
+      const response = await fetch(`${API_BASE}/api/analyze/upload`, {
         method: "POST",
         body: formData,
       });
