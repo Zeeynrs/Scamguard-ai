@@ -45,6 +45,10 @@ export default function LiveCallMonitor() {
   const seqRef = useRef(0);
   const frameIntervalRef = useRef<number | null>(null);
   const audioIntervalRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const isActiveRef = useRef(false);
+  const captureStartedRef = useRef(false);
 
   const start = async () => {
     setError(null);
@@ -61,42 +65,82 @@ export default function LiveCallMonitor() {
         videoRef.current.play();
       }
 
-      // WebSocket connection
-      const wsUrl = API_BASE.replace(/^http/, "ws") + "/api/analyze/stream";
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setIsActive(true);
-        setupAudioCapture(stream);
-        setupVideoCapture();
-      };
-
-      ws.onmessage = (event) => {
-        const data: StreamResponse = JSON.parse(event.data);
-        setTranscript(data.transcript_window);
-        setRisk(data.risk);
-        setVision(data.vision);
-        setAudio(data.audio);
-        setElapsed(data.elapsed_seconds);
-      };
-
-      ws.onerror = () => setError("WebSocket connection failed");
-      ws.onclose = () => {
-        if (isActive) setError("Connection lost");
-        stop();
-      };
+      // Connect WebSocket
+      connectWebSocket(stream);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to access camera/mic";
       setError(msg);
     }
   };
 
+  const connectWebSocket = (stream: MediaStream) => {
+    const wsUrl = API_BASE.replace(/^http/, "ws") + "/api/analyze/stream";
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setIsActive(true);
+      isActiveRef.current = true;
+      reconnectAttemptsRef.current = 0;
+      // Only start capture once; on reconnect the processors are already running
+      if (!captureStartedRef.current) {
+        setupAudioCapture(stream);
+        setupVideoCapture();
+        captureStartedRef.current = true;
+      }
+    };
+
+    ws.onmessage = (event) => {
+      const data: StreamResponse = JSON.parse(event.data);
+      
+      // Handle server-sent errors (e.g., max duration)
+      if ("error" in data) {
+        setError((data as any).error);
+        stop();
+        return;
+      }
+      
+      setTranscript(data.transcript_window);
+      setRisk(data.risk);
+      setVision(data.vision);
+      setAudio(data.audio);
+      setElapsed(data.elapsed_seconds);
+    };
+
+    ws.onerror = () => {
+      if (reconnectAttemptsRef.current === 0) {
+        setError("WebSocket connection failed");
+      }
+    };
+
+    ws.onclose = () => {
+      if (!isActiveRef.current) return; // user stopped manually
+      
+      // Auto-reconnect with exponential backoff (max 3 attempts)
+      if (reconnectAttemptsRef.current < 3) {
+        reconnectAttemptsRef.current++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 8000);
+        setError(`Connection lost. Reconnecting in ${delay / 1000}s... (${reconnectAttemptsRef.current}/3)`);
+        
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          if (streamRef.current && isActiveRef.current) {
+            connectWebSocket(streamRef.current);
+          }
+        }, delay);
+      } else {
+        setError("Connection lost. Max reconnect attempts reached. Click Stop and restart.");
+        stop();
+      }
+    };
+  };
+
   const stop = () => {
     setIsActive(false);
+    isActiveRef.current = false;
 
     if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
     if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
 
     wsRef.current?.close();
     wsRef.current = null;
@@ -108,6 +152,9 @@ export default function LiveCallMonitor() {
     audioContextRef.current = null;
 
     if (videoRef.current) videoRef.current.srcObject = null;
+    
+    reconnectAttemptsRef.current = 0;
+    captureStartedRef.current = false;
   };
 
   const setupAudioCapture = (stream: MediaStream) => {

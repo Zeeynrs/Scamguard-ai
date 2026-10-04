@@ -1,6 +1,7 @@
 """
 ScamGuard Multimodal — REST and WebSocket API routes.
 """
+import asyncio
 import base64
 import time
 import numpy as np
@@ -181,6 +182,14 @@ async def analyze_stream(websocket: WebSocket):
     ANALYSIS_INTERVAL = 4.0
     last_analysis = start
 
+    # --- Hardening bounds (prevent unbounded memory / LLM cost on long calls) ---
+    MAX_AUDIO_BUFFER_BYTES = 16000 * 2 * 30   # cap PCM buffer at 30s (drop oldest consumed)
+    MAX_TRANSCRIPT_CHARS = 4000               # cap LLM input length
+    MAX_TRANSCRIPT_SENT = 6000                # cap transcript echoed to client
+    STT_TIMEOUT_SECONDS = 20.0                # never let a hung STT block the stream
+    MAX_CALL_SECONDS = 3600                   # auto-close after 1h to free resources
+    last_error_emit = 0.0
+
     latest = {
         "audio_score": 0.0,
         "audio_indications": [],
@@ -194,10 +203,20 @@ async def analyze_stream(websocket: WebSocket):
             seq = msg.get("seq", 0)
             now = time.time()
 
+            # --- Auto-close after max duration ---
+            if (now - start) > MAX_CALL_SECONDS:
+                await websocket.send_json({"error": "Max call duration reached (1h). Reconnect to continue."})
+                break
+
             # --- Audio chunk ingestion (raw PCM16 LE) ---
             if msg.get("audio_chunk"):
                 try:
                     audio_buffer.extend(base64.b64decode(msg["audio_chunk"]))
+                    # Trim old buffer to prevent unbounded growth
+                    if len(audio_buffer) > MAX_AUDIO_BUFFER_BYTES:
+                        trim_at = len(audio_buffer) - MAX_AUDIO_BUFFER_BYTES
+                        audio_buffer = audio_buffer[trim_at:]
+                        last_transcribed_offset = max(0, last_transcribed_offset - trim_at)
                 except Exception:
                     pass
 
@@ -235,19 +254,37 @@ async def analyze_stream(websocket: WebSocket):
                     segment_pcm = bytes(audio_buffer[last_transcribed_offset:last_transcribed_offset + SEGMENT_BYTES])
                     last_transcribed_offset += SEGMENT_BYTES
 
-                    # Wrap in WAV and transcribe
+                    # Wrap in WAV and transcribe (with timeout protection)
                     try:
                         wav_bytes = pcm16_to_wav_bytes(segment_pcm, sample_rate=16000, channels=1)
-                        seg_text, _ = transcribe_bytes(wav_bytes, suffix=".wav", language=settings.stt_language)
+                        
+                        # Non-blocking STT with timeout
+                        def _blocking_stt():
+                            return transcribe_bytes(wav_bytes, suffix=".wav", language=settings.stt_language)
+                        
+                        seg_text, _ = await asyncio.wait_for(
+                            asyncio.get_event_loop().run_in_executor(None, _blocking_stt),
+                            timeout=STT_TIMEOUT_SECONDS
+                        )
+                        
                         if seg_text:
                             full_transcript += (" " if full_transcript else "") + seg_text.strip()
+                            # Truncate transcript to prevent LLM cost explosion
+                            if len(full_transcript) > MAX_TRANSCRIPT_CHARS:
+                                full_transcript = full_transcript[-MAX_TRANSCRIPT_CHARS:]
                         
                         # Audio deepfake scoring (optional, on the last segment only to save CPU)
                         ascore, aind = score_audio_bytes(wav_bytes, suffix=".wav")
                         latest["audio_score"] = ascore
                         latest["audio_indications"] = aind
+                    except asyncio.TimeoutError:
+                        if (now - last_error_emit) > 30.0:  # rate-limit error echoes
+                            print(f"[stream] STT timeout after {STT_TIMEOUT_SECONDS}s")
+                            last_error_emit = now
                     except Exception as e:
-                        print(f"[stream] STT/audio error: {e}")
+                        if (now - last_error_emit) > 30.0:
+                            print(f"[stream] STT/audio error: {e}")
+                            last_error_emit = now
 
                     # Re-analyze intent on the cumulative transcript
                     if full_transcript:
@@ -264,9 +301,12 @@ async def analyze_stream(websocket: WebSocket):
             )
             risk = compute_risk(audio_result, latest["vision"], latest["intent"], _weights())
 
+            # Cap transcript sent to client (UI performance, network bandwidth)
+            transcript_window = full_transcript[-MAX_TRANSCRIPT_SENT:] if len(full_transcript) > MAX_TRANSCRIPT_SENT else full_transcript
+
             await websocket.send_json({
                 "seq": seq,
-                "transcript_window": full_transcript,
+                "transcript_window": transcript_window,
                 "risk": risk.model_dump(),
                 "elapsed_seconds": round(now - start, 1),
                 "vision": latest["vision"].model_dump(),

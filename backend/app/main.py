@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.api.routes import router
 from app.config import settings
 from app.core.security import SecurityMiddleware
@@ -35,6 +36,16 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
+
+
+# --- Global exception handler: never leak stack traces, always return clean JSON ---
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    print(f"[error] unhandled on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal analysis error. Please retry."},
+    )
 
 
 @app.get("/")
