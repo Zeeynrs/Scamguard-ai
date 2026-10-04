@@ -6,7 +6,7 @@ import time
 import numpy as np
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.config import settings
@@ -91,14 +91,28 @@ async def analyze_text(payload: TextAnalysisRequest):
 
 
 @router.post("/analyze/upload", response_model=AnalysisReport)
-async def analyze_upload(file: UploadFile = File(...)):
+async def analyze_upload(request: Request, file: UploadFile = File(...)):
     """
     Full forensic analysis of an uploaded audio file (voice note / call recording).
     Audio -> STT -> intent + deepfake -> fused report.
     """
+    # --- Enforce upload size limit (guard against memory exhaustion) ---
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max {settings.max_upload_mb} MB.",
+        )
+
     audio_bytes = await file.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
+    if len(audio_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max {settings.max_upload_mb} MB.",
+        )
 
     suffix = "." + (file.filename or "audio.wav").split(".")[-1]
 

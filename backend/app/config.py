@@ -13,8 +13,8 @@ class Settings(BaseSettings):
 
     # LLM provider
     llm_provider: Literal["openai", "groq", "ollama"] = "openai"
+
     # LLM
-    llm_provider: Literal["openai", "groq", "ollama"] = "openai"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
@@ -47,6 +47,24 @@ class Settings(BaseSettings):
     # Server
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+
+    # --- Security (demo hardening) ---
+    # Set to "development" to re-enable Swagger docs and permissive CORS.
+    environment: str = "production"
+    # Comma-separated list of allowed browser origins.
+    cors_origins: str = (
+        "https://scamguard.parallel-dungeons.site,"
+        "https://api.parallel-dungeons.site,"
+        "http://localhost:3000"
+    )
+    # Max requests per client IP per window.
+    rate_limit_requests: int = 30
+    rate_limit_window_seconds: int = 60
+    # Max upload size for /analyze/upload (megabytes).
+    max_upload_mb: int = 25
+    # Optional shared access code. Empty = open demo. When set, clients must
+    # send header "X-Access-Code: <value>".
+    access_code: str = ""
 
     class Config:
         env_file = ".env"
