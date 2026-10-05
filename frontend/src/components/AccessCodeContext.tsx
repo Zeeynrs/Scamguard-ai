@@ -45,17 +45,25 @@ export function AccessCodeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handler = () => {
-      // A 401 arrived: previously stored code (if any) was rejected.
-      setGateError((prev) => prev || !!window.localStorage.getItem(ACCESS_CODE_STORAGE_KEY));
+      // A 401 arrived: previously stored code was rejected, or none set yet.
+      const stored = window.localStorage.getItem(ACCESS_CODE_STORAGE_KEY);
+      if (stored) {
+        // Drop stale/rejected code so it doesn't loop forever
+        window.localStorage.removeItem(ACCESS_CODE_STORAGE_KEY);
+        setAccessCodeState(null);
+        setGateError(true);
+      }
       setGateOpen(true);
     };
     window.addEventListener("access-code-required", handler);
     return () => window.removeEventListener("access-code-required", handler);
   }, []);
 
+  const isAuthenticated = !gateError && !gateOpen;
+
   return (
     <AccessCodeContext.Provider
-      value={{ accessCode, setAccessCode, isAuthenticated: true, showGate, gateOpen, closeGate, gateError }}
+      value={{ accessCode, setAccessCode, isAuthenticated, showGate, gateOpen, closeGate, gateError }}
     >
       {children}
     </AccessCodeContext.Provider>
