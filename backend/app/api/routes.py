@@ -322,12 +322,62 @@ async def list_pings(request: Request):
 
 
 @router.post("/family/pings/{ping_id}/respond")
-async def respond_to_ping(ping_id: str, payload: RespondPingRequest):
+async def respond_to_ping(request: Request, ping_id: str, payload: RespondPingRequest):
     """Simulate or receive the family member's answer (real vs impostor)."""
-    ping = store.respond(ping_id, confirmed_identity=payload.confirmed)
+    owner = _owner(request)
+    ping = store.respond(ping_id, confirmed_identity=payload.confirmed, owner=owner)
     if not ping:
-        raise HTTPException(status_code=404, detail="Ping not found")
+        raise HTTPException(status_code=404, detail="Ping not found or not owned by you")
     return {"status": "ok", "ping": ping.model_dump()}
+
+
+# ---------------------------------------------------------------------------
+# Feedback / Report Correction
+# ---------------------------------------------------------------------------
+
+class FeedbackRequest(BaseModel):
+    excerpt: str
+    is_scam: bool
+    comment: str = ""
+
+class ModerateFeedbackRequest(BaseModel):
+    status: str   # "accepted" or "rejected"
+
+
+@router.post("/feedback")
+async def submit_feedback(payload: FeedbackRequest):
+    """Report a false positive or false negative. Anti-spam enforced server-side."""
+    try:
+        result = store.add_feedback(
+            excerpt=payload.excerpt,
+            is_scam=payload.is_scam,
+            comment=payload.comment,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/feedback")
+async def list_feedback(status: str = Query("pending"), limit: int = Query(100)):
+    """Moderation triage: browse pending / accepted / rejected reports."""
+    rows = store.list_feedback(status=status, limit=limit)
+    return {"reports": rows}
+
+
+@router.post("/feedback/{feedback_id}/moderate")
+async def moderate_feedback(feedback_id: str, payload: ModerateFeedbackRequest):
+    """Accept or reject a user correction."""
+    ok = store.moderate_feedback(feedback_id, status=payload.status)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Report not found or invalid status")
+    return {"status": "ok"}
+
+
+@router.get("/feedback/counts")
+async def feedback_counts():
+    """Aggregate counts per status — feeds calibration dashboard."""
+    return store.feedback_counts()
 
 
 # ---------------------------------------------------------------------------

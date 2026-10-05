@@ -146,45 +146,64 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+  // Owner ID for family data isolation (header-based, not body)
+  const [ownerId, setOwnerId] = useState<string>("");
+
+  const familyHeaders = useCallback(
+    (extra: Record<string, string> = {}) => ({
+      "Content-Type": "application/json",
+      "X-Family-Owner": ownerId.trim(),
+      ...extra,
+    }),
+    [ownerId],
+  );
+
   const fetchContacts = useCallback(async () => {
+    if (!ownerId.trim()) return;
     try {
-      const r = await fetch(`${API_BASE}/api/family/contacts`);
+      const r = await fetch(`${API_BASE}/api/family/contacts`, {
+        headers: familyHeaders(),
+      });
       if (r.ok) {
         const d = await r.json();
         setContacts(d.contacts || []);
       }
     } catch {}
-  }, [API_BASE]);
+  }, [API_BASE, ownerId, familyHeaders]);
 
   const fetchPings = useCallback(async () => {
+    if (!ownerId.trim()) return;
     try {
-      const r = await fetch(`${API_BASE}/api/family/pings`);
+      const r = await fetch(`${API_BASE}/api/family/pings`, {
+        headers: familyHeaders(),
+      });
       if (r.ok) {
         const d = await r.json();
         setPings(d.pings || []);
       }
     } catch {}
-  }, [API_BASE]);
+  }, [API_BASE, ownerId, familyHeaders]);
 
-  // Load config on mount
+  // Load config on mount (or when ownerId changes)
   useEffect(() => {
-    fetch(`${API_BASE}/api/family/safe-word`)
+    if (!ownerId.trim()) return;
+    fetch(`${API_BASE}/api/family/safe-word`, { headers: familyHeaders() })
       .then((r) => r.json())
       .then((d) => setSwConfigured(d.configured ?? false))
       .catch(() => {});
     fetchContacts();
     fetchPings();
-  }, [API_BASE, fetchContacts, fetchPings]);
+  }, [API_BASE, ownerId, familyHeaders, fetchContacts, fetchPings]);
 
   // --- Safe word actions ---
   const handleSetSafeWord = async () => {
     const word = safeWord.trim();
-    if (!word) return;
+    if (!word || !ownerId.trim()) return;
     setSwLoading(true);
     try {
       const r = await fetch(`${API_BASE}/api/family/safe-word`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: familyHeaders(),
         body: JSON.stringify({ safe_word: word }),
       });
       if (r.ok) {
@@ -197,13 +216,13 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
 
   const handleCheckSafeWord = async () => {
     const answer = swCheckText.trim();
-    if (!answer) return;
+    if (!answer || !ownerId.trim()) return;
     setSwLoading(true);
     setSwCheckResult(null);
     try {
       const r = await fetch(`${API_BASE}/api/family/safe-word/verify`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: familyHeaders(),
         body: JSON.stringify({ answer }),
       });
       if (r.ok) {
@@ -217,12 +236,12 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   // --- Contact actions ---
   const addContact = async () => {
     const name = contactName.trim();
-    if (!name) return;
+    if (!name || !ownerId.trim()) return;
     setContactLoading(true);
     try {
       const r = await fetch(`${API_BASE}/api/family/contacts`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: familyHeaders(),
         body: JSON.stringify({ name, telegram_username: contactUser.trim() }),
       });
       if (r.ok) {
@@ -235,8 +254,12 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   };
 
   const removeContact = async (id: string) => {
+    if (!ownerId.trim()) return;
     try {
-      const r = await fetch(`${API_BASE}/api/family/contacts/${id}`, { method: "DELETE" });
+      const r = await fetch(`${API_BASE}/api/family/contacts/${id}`, {
+        method: "DELETE",
+        headers: familyHeaders(),
+      });
       if (r.ok) await fetchContacts();
     } catch {}
   };
@@ -244,12 +267,12 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   // --- Ping actions ---
   const createPing = async () => {
     const claim = pingClaim.trim();
-    if (!claim) return;
+    if (!claim || !ownerId.trim()) return;
     setPingLoading(true);
     try {
       const r = await fetch(`${API_BASE}/api/family/pings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: familyHeaders(),
         body: JSON.stringify({ claim }),
       });
       if (r.ok) {
@@ -261,10 +284,11 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   };
 
   const respondPing = async (pingId: string, confirmed: boolean) => {
+    if (!ownerId.trim()) return;
     try {
       const r = await fetch(`${API_BASE}/api/family/pings/${pingId}/respond`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: familyHeaders(),
         body: JSON.stringify({ confirmed }),
       });
       if (r.ok) await fetchPings();
@@ -275,6 +299,25 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
 
   return (
     <div className="space-y-5">
+      {/* 0. Family owner identity (data isolation) */}
+      <div className="card p-4 space-y-2">
+        <label className="text-[11px] font-mono uppercase text-slate-400">
+          {language === "id" ? "ID Keluarga" : "Family ID"}
+        </label>
+        <input
+          type="text"
+          value={ownerId}
+          onChange={(e) => setOwnerId(e.target.value)}
+          placeholder={language === "id" ? "mis. keluarga-budi" : "e.g. family-budi"}
+          className="input-field h-9 text-sm"
+        />
+        <p className="text-[11px] text-slate-500">
+          {language === "id"
+            ? "Semua data keluarga (kata sandi, kontak, ping) terpisah berdasarkan ID ini. Wajib diisi sebelum menyimpan data."
+            : "All family data (safe word, contacts, pings) is isolated by this ID. Required before saving anything."}
+        </p>
+      </div>
+
       {/* 1. Reply scripts & actions (from current analysis) */}
       {hasGuidance && (
         <>

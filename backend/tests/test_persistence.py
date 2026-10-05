@@ -212,3 +212,49 @@ def test_api_safe_word_verify_uses_hash(tmp_path, monkeypatch):
         headers={"X-Family-Owner": "bob"},
     )
     assert other.status_code == 404
+
+
+def test_api_ping_response_is_owner_scoped(tmp_path, monkeypatch):
+    client = _api_client(tmp_path, monkeypatch)
+    alice = {"X-Family-Owner": "alice"}
+    bob = {"X-Family-Owner": "bob"}
+
+    created = client.post("/api/family/pings", json={"claim": "Emergency"}, headers=alice)
+    ping_id = created.json()["ping"]["id"]
+
+    # Bob cannot respond to or even read Alice's ping through the response API.
+    denied = client.post(
+        f"/api/family/pings/{ping_id}/respond",
+        json={"confirmed": True},
+        headers=bob,
+    )
+    assert denied.status_code == 404
+    assert client.get("/api/family/pings", headers=alice).json()["pings"][0]["status"] == "pending"
+
+    allowed = client.post(
+        f"/api/family/pings/{ping_id}/respond",
+        json={"confirmed": True},
+        headers=alice,
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["ping"]["status"] == "verified_real"
+
+
+def test_feedback_submit_deduplicates_and_moderates(tmp_path, monkeypatch):
+    client = _api_client(tmp_path, monkeypatch)
+    payload = {"excerpt": "Suspicious transfer now", "is_scam": True, "comment": "possible scam"}
+
+    first = client.post("/api/feedback", json=payload)
+    assert first.status_code == 200
+    assert first.json()["status"] == "recorded"
+
+    duplicate = client.post("/api/feedback", json=payload)
+    assert duplicate.json()["status"] == "duplicate"
+
+    counts = client.get("/api/feedback/counts").json()
+    assert counts["pending"] == 1
+
+    feedback_id = first.json()["id"]
+    moderated = client.post(f"/api/feedback/{feedback_id}/moderate", json={"status": "accepted"})
+    assert moderated.status_code == 200
+    assert client.get("/api/feedback/counts").json()["accepted"] == 1

@@ -183,3 +183,19 @@ def test_ping_response_can_flag_impostor(fresh_store):
 def test_respond_to_unknown_ping_returns_none(fresh_store):
     s = fresh_store
     assert s.respond("does-not-exist", confirmed_identity=True) is None
+
+
+def test_respond_cannot_touch_another_owners_ping(fresh_store):
+    """Owner scoping on respond: bob must not be able to answer alice's ping."""
+    s = fresh_store
+    ping = s.create_ping("alice", claim="Anak diculik")
+
+    # Bob tries to answer alice's ping → rejected, nothing changes.
+    assert s.respond(ping.id, confirmed_identity=True, owner="bob") is None
+    alice_view = s.list_pings("alice")
+    assert alice_view[0].status == "pending"
+
+    # Alice (the real owner) can answer.
+    resolved = s.respond(ping.id, confirmed_identity=True, owner="alice")
+    assert resolved is not None
+    assert resolved.status == "verified_real"

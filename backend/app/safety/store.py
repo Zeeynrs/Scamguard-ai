@@ -185,7 +185,18 @@ class FamilyStore:
             for r in rows
         ]
 
-    def respond(self, ping_id: str, confirmed_identity: bool) -> Optional[VerificationPing]:
+    def respond(
+        self,
+        ping_id: str,
+        confirmed_identity: bool,
+        owner: Optional[str] = None,
+    ) -> Optional[VerificationPing]:
+        """
+        Answer a verification ping.
+
+        When `owner` is given, the ping must belong to that owner — otherwise
+        another family could answer someone else's ping and flip its status.
+        """
         status = "verified_real" if confirmed_identity else "impostor_alert"
         now = time.time()
         with transaction() as conn:
@@ -195,14 +206,20 @@ class FamilyStore:
                 UPDATE verification_pings
                 SET status = ?
                 WHERE id = ? AND status = 'pending' AND (created_at + ttl_seconds) >= ?
+                  AND (? IS NULL OR owner = ?)
                 """,
-                (status, ping_id, now),
+                (status, ping_id, now, owner, owner),
             )
             if cur.rowcount == 0:
-                # Either missing or expired/already answered; fetch to see
+                # Either missing, expired/already answered, or not owned by
+                # the caller. Only return the row if the caller owns it.
                 row = conn.execute(
-                    "SELECT id, owner, claim, status, created_at FROM verification_pings WHERE id = ?",
-                    (ping_id,),
+                    """
+                    SELECT id, owner, claim, status, created_at
+                    FROM verification_pings
+                    WHERE id = ? AND (? IS NULL OR owner = ?)
+                    """,
+                    (ping_id, owner, owner),
                 ).fetchone()
                 if not row:
                     return None
@@ -225,6 +242,125 @@ class FamilyStore:
                 status=row["status"],
                 created_at=row["created_at"],
             )
+
+
+# -----------------------------------------------------------------------
+    # Feedback / Report Correction
+    # -----------------------------------------------------------------------
+
+    def add_feedback(
+        self,
+        excerpt: str,
+        is_scam: bool,
+        comment: str = "",
+        max_excerpt_chars: int = 280,
+    ) -> dict:
+        """
+        Record a user correction of a false positive / false negative.
+
+        Anti-abuse guards:
+          - excerpt is truncated (bounded storage, no transcript dumping)
+          - one pending report per excerpt per hour, to blunt spam
+        """
+        clean_excerpt = " ".join(excerpt.strip().split())[:max_excerpt_chars]
+        if not clean_excerpt:
+            raise ValueError("excerpt cannot be empty")
+
+        now = time.time()
+        fid = str(uuid.uuid4())[:12]
+        with transaction() as conn:
+            # Anti-spam: reject if an identical excerpt is already pending.
+            dupe = conn.execute(
+                """
+                SELECT 1 FROM feedback
+                WHERE excerpt = ? AND status = 'pending' AND created_at > ?
+                LIMIT 1
+                """,
+                (clean_excerpt, now - 3600),
+            ).fetchone()
+            if dupe:
+                return {"status": "duplicate", "id": None}
+
+            conn.execute(
+                """
+                INSERT INTO feedback (id, excerpt, is_scam, comment, status, created_at)
+                VALUES (?, ?, ?, ?, 'pending', ?)
+                """,
+                (fid, clean_excerpt, 1 if is_scam else 0, comment.strip()[:500], now),
+            )
+        return {"status": "recorded", "id": fid}
+
+    def list_feedback(self, status: str = "pending", limit: int = 100) -> List[dict]:
+        """List reports for moderation triage (newest first)."""
+        conn = get_conn()
+        rows = conn.execute(
+            """
+            SELECT id, excerpt, is_scam, comment, status, created_at
+            FROM feedback
+            WHERE status = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (status, max(1, min(limit, 500))),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def moderate_feedback(self, feedback_id: str, status: str) -> bool:
+        """Accept or reject a report. Unknown ids and bad statuses return False."""
+        if status not in ("accepted", "rejected"):
+            return False
+        with transaction() as conn:
+            cur = conn.execute(
+                "UPDATE feedback SET status = ? WHERE id = ?",
+                (status, feedback_id),
+            )
+            return cur.rowcount > 0
+
+    def feedback_counts(self) -> dict:
+        """Counts per status — feeds the calibration dashboard."""
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM feedback GROUP BY status"
+        ).fetchall()
+        counts = {"pending": 0, "accepted": 0, "rejected": 0}
+        for r in rows:
+            counts[r["status"]] = r["n"]
+        return counts
+
+    # -----------------------------------------------------------------------
+    # Data retention
+    # -----------------------------------------------------------------------
+
+    def purge_expired_pings(self, older_than_seconds: int = 86400 * 7) -> int:
+        """Delete answered/expired pings older than the retention window."""
+        cutoff = time.time() - older_than_seconds
+        with transaction() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM verification_pings
+                WHERE status != 'pending' AND created_at < ?
+                """,
+                (cutoff,),
+            )
+            return cur.rowcount
+
+    def export_owner_data(self, owner: str) -> dict:
+        """Full export of one owner's data (portability / GDPR-style access)."""
+        conn = get_conn()
+        return {
+            "safe_word_configured": self.has_safe_word(owner),
+            "trust_circle": [
+                {
+                    "name": c.name,
+                    "telegram_username": c.telegram_username,
+                }
+                for c in self.list_contacts(owner)
+            ],
+            "verification_pings": [
+                {"claim": p.claim, "status": p.status, "created_at": p.created_at}
+                for p in self.list_pings(owner)
+            ],
+        }
 
 
 # Global singleton instance

@@ -82,6 +82,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
         created_at  REAL NOT NULL DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_pings_owner ON verification_pings(owner);
+
+    CREATE TABLE IF NOT EXISTS feedback (
+        id           TEXT PRIMARY KEY,
+        excerpt      TEXT NOT NULL,
+        is_scam      INTEGER NOT NULL,          -- 0 = benign, 1 = scam
+        comment      TEXT NOT NULL DEFAULT '',
+        status       TEXT NOT NULL DEFAULT 'pending',  -- pending | accepted | rejected
+        created_at   REAL NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
     """)
     conn.commit()
 
