@@ -4,16 +4,19 @@ ScamGuard Multimodal — REST and WebSocket API routes.
 import asyncio
 import base64
 import time
+from typing import Optional, List
 import numpy as np
-from typing import Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import (
+    APIRouter, UploadFile, File, WebSocket, WebSocketDisconnect,
+    HTTPException, Request, Query,
+)
 
 from app.config import settings
 from app.core.schemas import (
     AnalysisReport, AudioAnalysisResult, VisionAnalysisResult, IntentAnalysisResult,
-    RiskAssessment,
+    RiskAssessment, FamilyGuardGuidance, TextAnalysisRequest,
+    TrustContact, VerificationPing,
 )
 from app.core.fusion import compute_risk
 from app.audio.stt import transcribe_bytes, pcm16_to_wav_bytes
@@ -21,14 +24,10 @@ from app.audio.deepfake import score_audio_bytes
 from app.intent.llm import analyze_intent
 from app.vision.analyzer import FaceAnalyzer
 from app.video.deepfake import VideoDeepfakeDetector
+from app.safety import build_guidance, store, evaluate_answer
+from app.safety.safeword import new_challenge
 
 router = APIRouter()
-
-
-class TextAnalysisRequest(BaseModel):
-    text: str
-    deepfake_audio_hint: float = 0.0
-    deepfake_video_hint: float = 0.0
 
 
 def _weights() -> dict:
@@ -40,6 +39,39 @@ def _weights() -> dict:
     }
 
 
+def _attach_family_guard(
+    intent_result: IntentAnalysisResult,
+    risk: RiskAssessment,
+    language: str = "en",
+    owner: str = "default",
+    safe_word_attempt: str = "",
+) -> FamilyGuardGuidance:
+    """Compose safe word + reply scripts + verification action checklist."""
+    expected = store.get_safe_word(owner)
+    passed: Optional[bool] = None
+    if safe_word_attempt and expected:
+        passed = evaluate_answer(safe_word_attempt, expected)
+
+    challenge = new_challenge(language) if expected or "family_emergency" in intent_result.tactics_detected else ""
+    guidance_dict = build_guidance(
+        tactics=intent_result.tactics_detected,
+        risk_level=risk.level,
+        language=language,
+        safe_word_challenge=challenge,
+    )
+
+    return FamilyGuardGuidance(
+        safe_word_challenge=guidance_dict["safe_word_challenge"],
+        reply_scripts=guidance_dict["reply_scripts"],
+        verify_actions=guidance_dict["verify_actions"],
+        safe_word_check_passed=passed,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
 @router.get("/health")
 async def health():
     return {
@@ -50,12 +82,15 @@ async def health():
     }
 
 
+# ---------------------------------------------------------------------------
+# Core Analysis
+# ---------------------------------------------------------------------------
+
 @router.post("/analyze/text", response_model=AnalysisReport)
 async def analyze_text(payload: TextAnalysisRequest):
     """
     Direct text analysis (transcript input).
-    Runs intent engine + risk fusion with optional synthetic audio/video hints.
-    Useful for testing without audio, and for calls where a transcript is already available.
+    Runs intent engine + risk fusion + family protection reply scripts.
     """
     if not payload.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
@@ -77,6 +112,14 @@ async def analyze_text(payload: TextAnalysisRequest):
 
     risk = compute_risk(audio_result, vision_result, intent_result, _weights())
 
+    family_guard = _attach_family_guard(
+        intent_result=intent_result,
+        risk=risk,
+        language=payload.language or "en",
+        owner="default",
+        safe_word_attempt=payload.safe_word,
+    )
+
     return AnalysisReport(
         mode="upload",
         audio_result=audio_result,
@@ -89,16 +132,21 @@ async def analyze_text(payload: TextAnalysisRequest):
             "audio_deepfake": payload.deepfake_audio_hint,
             "video_deepfake": payload.deepfake_video_hint,
         },
+        family_guard=family_guard,
     )
 
 
 @router.post("/analyze/upload", response_model=AnalysisReport)
-async def analyze_upload(request: Request, file: UploadFile = File(...)):
+async def analyze_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    language: str = Query("auto"),
+    safe_word: str = Query(""),
+):
     """
-    Full forensic analysis of an uploaded audio file (voice note / call recording).
-    Audio -> STT -> intent + deepfake -> fused report.
+    Full forensic analysis of an uploaded audio file.
+    Audio -> STT -> intent + deepfake -> fused report + family protection guidance.
     """
-    # --- Enforce upload size limit (guard against memory exhaustion) ---
     max_bytes = settings.max_upload_mb * 1024 * 1024
     content_length = request.headers.get("content-length")
     if content_length and content_length.isdigit() and int(content_length) > max_bytes:
@@ -119,14 +167,15 @@ async def analyze_upload(request: Request, file: UploadFile = File(...)):
     suffix = "." + (file.filename or "audio.wav").split(".")[-1]
 
     # 1. Speech-to-text
-    transcript, language = transcribe_bytes(audio_bytes, suffix=suffix, language=settings.stt_language)
+    stt_lang = settings.stt_language if language == "auto" else language
+    transcript, detected_lang = transcribe_bytes(audio_bytes, suffix=suffix, language=stt_lang)
 
     # 2. Audio deepfake scoring
     audio_score, audio_indications = score_audio_bytes(audio_bytes, suffix=suffix)
 
     audio_result = AudioAnalysisResult(
         transcript=transcript,
-        language=language,
+        language=detected_lang,
         deepfake_score=audio_score,
         deepfake_indications=audio_indications,
     )
@@ -139,6 +188,14 @@ async def analyze_upload(request: Request, file: UploadFile = File(...)):
 
     risk = compute_risk(audio_result, vision_result, intent_result, _weights())
 
+    family_guard = _attach_family_guard(
+        intent_result=intent_result,
+        risk=risk,
+        language="id" if detected_lang == "id" or language == "id" else "en",
+        owner="default",
+        safe_word_attempt=safe_word,
+    )
+
     return AnalysisReport(
         mode="upload",
         audio_result=audio_result,
@@ -150,44 +207,133 @@ async def analyze_upload(request: Request, file: UploadFile = File(...)):
             "intent_confidence": intent_result.confidence,
             "rule_tactics": len(intent_result.tactics_detected),
         },
+        family_guard=family_guard,
     )
 
 
+# ---------------------------------------------------------------------------
+# Family Protection: Safe Word, Trust Circle, Verification Pings
+# ---------------------------------------------------------------------------
+
+class SetSafeWordRequest(BaseModel):
+    owner: str = "default"
+    safe_word: str
+
+
+class SafeWordCheckRequest(BaseModel):
+    owner: str = "default"
+    answer: str
+
+
+class AddContactRequest(BaseModel):
+    owner: str = "default"
+    name: str
+    telegram_username: str = ""
+
+
+class CreatePingRequest(BaseModel):
+    owner: str = "default"
+    claim: str
+
+
+class RespondPingRequest(BaseModel):
+    confirmed: bool
+
+
+@router.post("/family/safe-word")
+async def set_safe_word(payload: SetSafeWordRequest):
+    """Set or update the family safe word for an owner."""
+    word = payload.safe_word.strip()
+    if not word:
+        raise HTTPException(status_code=400, detail="Safe word cannot be empty")
+    store.set_safe_word(payload.owner, word)
+    return {"status": "ok", "configured": True}
+
+
+@router.get("/family/safe-word")
+async def get_safe_word_status(owner: str = Query("default")):
+    """Check whether a safe word is configured (without leaking the secret)."""
+    word = store.get_safe_word(owner)
+    return {"configured": bool(word)}
+
+
+@router.post("/family/safe-word/verify")
+async def verify_safe_word(payload: SafeWordCheckRequest):
+    """Verify an answer against the stored safe word."""
+    expected = store.get_safe_word(payload.owner)
+    if not expected:
+        raise HTTPException(status_code=404, detail="No safe word configured for this family")
+    match = evaluate_answer(payload.answer, expected)
+    return {"passed": match}
+
+
+@router.get("/family/contacts")
+async def list_contacts(owner: str = Query("default")):
+    return {"contacts": [c.model_dump() for c in store.list_contacts(owner)]}
+
+
+@router.post("/family/contacts")
+async def add_contact(payload: AddContactRequest):
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    c = store.add_contact(payload.owner, payload.name.strip(), payload.telegram_username.strip())
+    return {"status": "ok", "contact": c.model_dump()}
+
+
+@router.delete("/family/contacts/{contact_id}")
+async def remove_contact(contact_id: str, owner: str = Query("default")):
+    ok = store.remove_contact(owner, contact_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"status": "ok"}
+
+
+@router.post("/family/pings")
+async def create_verification_ping(payload: CreatePingRequest):
+    """Trigger a cross-verification ping to the Trust Circle."""
+    if not payload.claim.strip():
+        raise HTTPException(status_code=400, detail="Claim cannot be empty")
+    ping = store.create_ping(payload.owner, payload.claim.strip())
+    return {"status": "ok", "ping": ping.model_dump()}
+
+
+@router.get("/family/pings")
+async def list_pings(owner: str = Query("default")):
+    return {"pings": [p.model_dump() for p in store.list_pings(owner)]}
+
+
+@router.post("/family/pings/{ping_id}/respond")
+async def respond_to_ping(ping_id: str, payload: RespondPingRequest):
+    """Simulate or receive the family member's answer (real vs impostor)."""
+    ping = store.respond(ping_id, confirmed_identity=payload.confirmed)
+    if not ping:
+        raise HTTPException(status_code=404, detail="Ping not found")
+    return {"status": "ok", "ping": ping.model_dump()}
+
+
+# ---------------------------------------------------------------------------
+# Streaming (Live Call Monitor)
+# ---------------------------------------------------------------------------
+
 @router.websocket("/analyze/stream")
 async def analyze_stream(websocket: WebSocket):
-    """
-    Real-time streaming analysis for live video calls.
-
-    Protocol (client -> server): JSON text frames
-      {"audio_chunk": "<base64 raw pcm16 le>", "video_frame": "<base64 jpeg>", "seq": N}
-
-    Server -> client: JSON StreamUpdate with cumulative transcript and current risk.
-
-    Audio chunks (raw PCM16 LE, 16kHz mono) are buffered. Every ~4 seconds, a new 3s
-    segment is transcribed and appended to the cumulative transcript. Vision frames
-    are processed per-frame and aggregated over the call duration.
-    """
     await websocket.accept()
     start = time.time()
     analyzer = FaceAnalyzer()
     deepfake_detector = VideoDeepfakeDetector(window_seconds=10.0)
 
-    # Cumulative transcript built from segments
     full_transcript = ""
-    
-    # Audio buffering: we collect PCM samples and transcode to WAV on demand
     audio_buffer = bytearray()
-    last_transcribed_offset = 0  # bytes already sent to STT
-    SEGMENT_BYTES = 16000 * 2 * 3  # 3s @ 16kHz mono 16-bit = 96000 bytes
+    last_transcribed_offset = 0
+    SEGMENT_BYTES = 16000 * 2 * 3
     ANALYSIS_INTERVAL = 4.0
     last_analysis = start
 
-    # --- Hardening bounds (prevent unbounded memory / LLM cost on long calls) ---
-    MAX_AUDIO_BUFFER_BYTES = 16000 * 2 * 30   # cap PCM buffer at 30s (drop oldest consumed)
-    MAX_TRANSCRIPT_CHARS = 4000               # cap LLM input length
-    MAX_TRANSCRIPT_SENT = 6000                # cap transcript echoed to client
-    STT_TIMEOUT_SECONDS = 20.0                # never let a hung STT block the stream
-    MAX_CALL_SECONDS = 3600                   # auto-close after 1h to free resources
+    MAX_AUDIO_BUFFER_BYTES = 16000 * 2 * 30
+    MAX_TRANSCRIPT_CHARS = 4000
+    MAX_TRANSCRIPT_SENT = 6000
+    STT_TIMEOUT_SECONDS = 20.0
+    MAX_CALL_SECONDS = 3600
     last_error_emit = 0.0
 
     latest = {
@@ -203,16 +349,13 @@ async def analyze_stream(websocket: WebSocket):
             seq = msg.get("seq", 0)
             now = time.time()
 
-            # --- Auto-close after max duration ---
             if (now - start) > MAX_CALL_SECONDS:
                 await websocket.send_json({"error": "Max call duration reached (1h). Reconnect to continue."})
                 break
 
-            # --- Audio chunk ingestion (raw PCM16 LE) ---
             if msg.get("audio_chunk"):
                 try:
                     audio_buffer.extend(base64.b64decode(msg["audio_chunk"]))
-                    # Trim old buffer to prevent unbounded growth
                     if len(audio_buffer) > MAX_AUDIO_BUFFER_BYTES:
                         trim_at = len(audio_buffer) - MAX_AUDIO_BUFFER_BYTES
                         audio_buffer = audio_buffer[trim_at:]
@@ -220,7 +363,6 @@ async def analyze_stream(websocket: WebSocket):
                 except Exception:
                     pass
 
-            # --- Video frame processing ---
             if msg.get("video_frame"):
                 try:
                     import cv2
@@ -228,14 +370,9 @@ async def analyze_stream(websocket: WebSocket):
                     arr = np.frombuffer(raw, dtype=np.uint8)
                     frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
                     if frame is not None:
-                        # Run deepfake detector (blink rate + jitter)
                         deepfake_result = deepfake_detector.analyze_frame(frame)
-                        
-                        # Merge with existing face analyzer
                         analyzer.process_frame(frame)
                         base_vision = analyzer.compute_result(now - start)
-                        
-                        # Combine results
                         latest["vision"] = VisionAnalysisResult(
                             face_detected=deepfake_result["face_detected"] or base_vision.face_detected,
                             deepfake_score=max(deepfake_result["deepfake_score"], base_vision.deepfake_score),
@@ -246,39 +383,33 @@ async def analyze_stream(websocket: WebSocket):
                 except Exception as e:
                     print(f"[stream] vision error: {e}")
 
-            # --- Periodic audio segment transcription (incremental) ---
             if (now - last_analysis) >= ANALYSIS_INTERVAL:
                 new_bytes = len(audio_buffer) - last_transcribed_offset
                 if new_bytes >= SEGMENT_BYTES:
-                    # Grab a fresh 3s segment
                     segment_pcm = bytes(audio_buffer[last_transcribed_offset:last_transcribed_offset + SEGMENT_BYTES])
                     last_transcribed_offset += SEGMENT_BYTES
 
-                    # Wrap in WAV and transcribe (with timeout protection)
                     try:
                         wav_bytes = pcm16_to_wav_bytes(segment_pcm, sample_rate=16000, channels=1)
-                        
-                        # Non-blocking STT with timeout
+
                         def _blocking_stt():
                             return transcribe_bytes(wav_bytes, suffix=".wav", language=settings.stt_language)
-                        
+
                         seg_text, _ = await asyncio.wait_for(
                             asyncio.get_event_loop().run_in_executor(None, _blocking_stt),
                             timeout=STT_TIMEOUT_SECONDS
                         )
-                        
+
                         if seg_text:
                             full_transcript += (" " if full_transcript else "") + seg_text.strip()
-                            # Truncate transcript to prevent LLM cost explosion
                             if len(full_transcript) > MAX_TRANSCRIPT_CHARS:
                                 full_transcript = full_transcript[-MAX_TRANSCRIPT_CHARS:]
-                        
-                        # Audio deepfake scoring (optional, on the last segment only to save CPU)
+
                         ascore, aind = score_audio_bytes(wav_bytes, suffix=".wav")
                         latest["audio_score"] = ascore
                         latest["audio_indications"] = aind
                     except asyncio.TimeoutError:
-                        if (now - last_error_emit) > 30.0:  # rate-limit error echoes
+                        if (now - last_error_emit) > 30.0:
                             print(f"[stream] STT timeout after {STT_TIMEOUT_SECONDS}s")
                             last_error_emit = now
                     except Exception as e:
@@ -286,13 +417,11 @@ async def analyze_stream(websocket: WebSocket):
                             print(f"[stream] STT/audio error: {e}")
                             last_error_emit = now
 
-                    # Re-analyze intent on the cumulative transcript
                     if full_transcript:
                         latest["intent"] = analyze_intent(full_transcript)
 
                 last_analysis = now
 
-            # --- Fuse and emit ---
             audio_result = AudioAnalysisResult(
                 transcript=full_transcript,
                 language="auto",
@@ -301,8 +430,15 @@ async def analyze_stream(websocket: WebSocket):
             )
             risk = compute_risk(audio_result, latest["vision"], latest["intent"], _weights())
 
-            # Cap transcript sent to client (UI performance, network bandwidth)
             transcript_window = full_transcript[-MAX_TRANSCRIPT_SENT:] if len(full_transcript) > MAX_TRANSCRIPT_SENT else full_transcript
+
+            # Real-time family protection guidance
+            guidance = _attach_family_guard(
+                intent_result=latest["intent"],
+                risk=risk,
+                language="id" if settings.stt_language == "id" else "en",
+                owner="default",
+            )
 
             await websocket.send_json({
                 "seq": seq,
@@ -311,6 +447,7 @@ async def analyze_stream(websocket: WebSocket):
                 "elapsed_seconds": round(now - start, 1),
                 "vision": latest["vision"].model_dump(),
                 "audio": audio_result.model_dump(),
+                "family_guard": guidance.model_dump(),
             })
 
     except WebSocketDisconnect:

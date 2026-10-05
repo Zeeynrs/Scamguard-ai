@@ -25,6 +25,7 @@ from app.intent.llm import analyze_intent
 from app.core.fusion import compute_risk
 from app.core.schemas import AudioAnalysisResult, VisionAnalysisResult, IntentAnalysisResult
 from app.config import settings
+from app.safety import build_guidance, store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("scamguard.bot")
@@ -37,6 +38,16 @@ WEIGHTS = {
 }
 
 LEVEL_EMOJI = {"low": "🟢", "medium": "🟡", "high": "🟠", "critical": "🚨"}
+
+TACTIC_NAMES = {
+    "urgency": "⏱ Time pressure",
+    "financial_demand": "💰 Financial demand",
+    "credential_harvest": "🔑 OTP/credential harvest",
+    "authority_impersonation": "👮 Authority impersonation",
+    "isolation_tactic": "🔇 Isolation tactic",
+    "reward_lure": "🎁 Reward/prize lure",
+    "family_emergency": "🚑 Family emergency",
+}
 
 
 def _fmt_report(risk, intent, transcript, language, audio_score, duration):
@@ -52,17 +63,8 @@ def _fmt_report(risk, intent, transcript, language, audio_score, duration):
     ]
 
     if intent.tactics_detected:
-        tactic_names = {
-            "urgency": "⏱ Time pressure",
-            "financial_demand": "💰 Financial demand",
-            "credential_harvest": "🔑 OTP/credential harvest",
-            "authority_impersonation": "👮 Authority impersonation",
-            "isolation_tactic": "🔇 Isolation tactic",
-            "reward_lure": "🎁 Reward/prize lure",
-            "family_emergency": "🚑 Family emergency",
-        }
         for t in intent.tactics_detected:
-            lines.append(f"  • {tactic_names.get(t, t)}")
+            lines.append(f"  • {TACTIC_NAMES.get(t, t)}")
     else:
         lines.append("  • None")
 
@@ -79,6 +81,29 @@ def _fmt_report(risk, intent, transcript, language, audio_score, duration):
         lines.append("")
         lines.append(f"*Transcript* ({language}):")
         lines.append(f"> {t}")
+
+    # --- Family Protection guidance ---
+    owner = "default"
+    sw = store.get_safe_word(owner)
+    lang = "id" if language == "id" else "en"
+    guidance = build_guidance(
+        tactics=intent.tactics_detected,
+        risk_level=risk.level,
+        language=lang,
+        safe_word_challenge="",  # don't leak safe word in chat
+    )
+    if guidance["reply_scripts"]:
+        lines.append("")
+        lines.append("🛡 *Family Protection*")
+        for s in guidance["reply_scripts"]:
+            lines.append(f"  ▸ *{s['title']}*")
+            lines.append(f"    Say: _{s['say']}_")
+            lines.append(f"    Avoid: _{s['avoid']}_")
+    if guidance["verify_actions"]:
+        lines.append("")
+        lines.append("🔒 *Immediate actions:*")
+        for act in guidance["verify_actions"]:
+            lines.append(f"  • {act}")
 
     lines.append("")
     lines.append(f"*Recommendation:* {risk.recommendation}")

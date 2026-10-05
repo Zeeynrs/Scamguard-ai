@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LiveCallMonitor from "@/components/LiveCallMonitor";
+import FamilyGuard, { type FamilyGuardGuidance } from "@/components/FamilyGuard";
 import {
   ChatCircleText,
   Microphone,
@@ -58,7 +59,8 @@ export interface BackendAnalysisReport {
     indications: string[];
     recommendation: string;
   };
-  raw_scores?: Record<string, number>;
+  raw_scores?: Record<string, number | boolean>;
+  family_guard?: FamilyGuardGuidance | null;
 }
 
 const translations = {
@@ -752,6 +754,8 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
                     </div>
                   </div>
                 )}
+
+                <FamilyGuard guidance={result?.family_guard ?? null} language={language} />
 
                 <div className="flex flex-wrap gap-3">
                   <button type="button" className="btn-secondary" onClick={copySummary}>

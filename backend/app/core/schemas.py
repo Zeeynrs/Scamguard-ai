@@ -39,6 +39,44 @@ class RiskAssessment(BaseModel):
     recommendation: str = ""
 
 
+class ReplyScript(BaseModel):
+    tactic: str
+    title: str
+    say: str
+    avoid: str
+    why: str
+
+
+class FamilyGuardGuidance(BaseModel):
+    safe_word_challenge: str = ""
+    reply_scripts: List[ReplyScript] = []
+    verify_actions: List[str] = []
+    safe_word_check_passed: Optional[bool] = None
+
+
+class TrustContact(BaseModel):
+    id: str
+    owner: str
+    name: str
+    telegram_username: str = ""
+
+
+class VerificationPing(BaseModel):
+    id: str
+    owner: str
+    claim: str
+    status: str = "pending"
+    created_at: float = 0.0
+
+
+class TextAnalysisRequest(BaseModel):
+    text: str
+    deepfake_audio_hint: float = 0.0
+    deepfake_video_hint: float = 0.0
+    language: str = "en"
+    safe_word: str = ""
+
+
 class AnalysisReport(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     mode: Literal["upload", "stream"] = "upload"
@@ -48,6 +86,7 @@ class AnalysisReport(BaseModel):
     intent_result: IntentAnalysisResult
     risk: RiskAssessment
     raw_scores: dict = {}
+    family_guard: Optional[FamilyGuardGuidance] = None
 
 
 class StreamFrame(BaseModel):
@@ -61,3 +100,4 @@ class StreamUpdate(BaseModel):
     transcript_window: str = ""
     risk: RiskAssessment
     elapsed_seconds: float = 0.0
+    family_guard: Optional[FamilyGuardGuidance] = None
