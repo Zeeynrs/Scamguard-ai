@@ -9,6 +9,8 @@ import SecurityEducation from "@/components/SecurityEducation";
 import Architecture from "@/components/Architecture";
 import FeedbackPanel from "@/components/FeedbackPanel";
 import Footer from "@/components/Footer";
+import { AccessCodeGate } from "@/components/AccessCodeGate";
+import { AccessCodeProvider } from "@/components/AccessCodeContext";
 
 export default function ScamGuardPage() {
   const [lang, setLang] = useState<Language>("en");
@@ -34,21 +36,24 @@ export default function ScamGuardPage() {
   }, [scrollToChecker]);
 
   return (
-    <div className="min-h-[100svh] bg-slate-950 text-slate-100 app-backdrop">
-      <Navbar language={lang} setLanguage={setLang} onCtaClick={goChecker} />
-      <main>
-        <Hero language={lang} onCtaClick={goChecker} onLiveClick={goLive} />
-        <ScamChecker language={lang} mode={mode} setMode={setMode} />
-        <HowItWorks language={lang} />
-        <SecurityEducation language={lang} />
-        <Architecture language={lang} />
-        <section id="feedback" className="py-16 md:py-24 px-4 md:px-8">
-          <div className="max-w-4xl mx-auto">
-            <FeedbackPanel language={lang} />
-          </div>
-        </section>
-      </main>
-      <Footer language={lang} />
-    </div>
+    <AccessCodeProvider>
+      <div className="min-h-[100svh] bg-slate-950 text-slate-100 app-backdrop">
+        <AccessCodeGate language={lang} />
+        <Navbar language={lang} setLanguage={setLang} onCtaClick={goChecker} />
+        <main>
+          <Hero language={lang} onCtaClick={goChecker} onLiveClick={goLive} />
+          <ScamChecker language={lang} mode={mode} setMode={setMode} />
+          <HowItWorks language={lang} />
+          <SecurityEducation language={lang} />
+          <Architecture language={lang} />
+          <section id="feedback" className="py-16 md:py-24 px-4 md:px-8">
+            <div className="max-w-4xl mx-auto">
+              <FeedbackPanel language={lang} />
+            </div>
+          </section>
+        </main>
+        <Footer language={lang} />
+      </div>
+    </AccessCodeProvider>
   );
 }

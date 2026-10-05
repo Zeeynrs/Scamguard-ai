@@ -21,6 +21,7 @@ import {
   ArrowClockwise,
   Info,
 } from "@/components/icons";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -326,7 +327,7 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
     setError(null);
     setResult(null);
     try {
-      const response = await fetch(`${API_BASE}/api/analyze/text`, {
+      const response = await apiFetch(`${API_BASE}/api/analyze/text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -354,7 +355,7 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const response = await fetch(`${API_BASE}/api/analyze/upload`, {
+      const response = await apiFetch(`${API_BASE}/api/analyze/upload`, {
         method: "POST",
         body: formData,
       });

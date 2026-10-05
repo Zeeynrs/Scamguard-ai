@@ -10,6 +10,7 @@ import {
   CheckCircle,
   XCircle,
 } from "@/components/icons";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -79,7 +80,7 @@ export default function FeedbackPanel({ language }: { language: "en" | "id" }) {
 
   const fetchCounts = useCallback(async () => {
     try {
-      const r = await fetch(`${API_BASE}/api/feedback/counts`);
+      const r = await apiFetch(`${API_BASE}/api/feedback/counts`);
       if (r.ok) setCounts(await r.json());
     } catch {}
   }, []);
@@ -87,7 +88,7 @@ export default function FeedbackPanel({ language }: { language: "en" | "id" }) {
   const fetchReports = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/feedback?status=${activeTab}&limit=50`);
+      const r = await apiFetch(`${API_BASE}/api/feedback?status=${activeTab}&limit=50`);
       if (r.ok) {
         const d = await r.json();
         setReports(d.reports || []);
@@ -107,7 +108,7 @@ export default function FeedbackPanel({ language }: { language: "en" | "id" }) {
   const moderate = async (id: string, status: "accepted" | "rejected") => {
     setModerating(id);
     try {
-      const r = await fetch(`${API_BASE}/api/feedback/${id}/moderate`, {
+      const r = await apiFetch(`${API_BASE}/api/feedback/${id}/moderate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),

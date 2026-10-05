@@ -12,6 +12,7 @@ import {
   X,
   Password,
 } from "@/components/icons";
+import { apiFetch } from "@/lib/api";
 
 // -------------------------------------------------------
 // Types
@@ -161,7 +162,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   const fetchContacts = useCallback(async () => {
     if (!ownerId.trim()) return;
     try {
-      const r = await fetch(`${API_BASE}/api/family/contacts`, {
+      const r = await apiFetch(`${API_BASE}/api/family/contacts`, {
         headers: familyHeaders(),
       });
       if (r.ok) {
@@ -174,7 +175,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   const fetchPings = useCallback(async () => {
     if (!ownerId.trim()) return;
     try {
-      const r = await fetch(`${API_BASE}/api/family/pings`, {
+      const r = await apiFetch(`${API_BASE}/api/family/pings`, {
         headers: familyHeaders(),
       });
       if (r.ok) {
@@ -187,7 +188,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   // Load config on mount (or when ownerId changes)
   useEffect(() => {
     if (!ownerId.trim()) return;
-    fetch(`${API_BASE}/api/family/safe-word`, { headers: familyHeaders() })
+    apiFetch(`${API_BASE}/api/family/safe-word`, { headers: familyHeaders() })
       .then((r) => r.json())
       .then((d) => setSwConfigured(d.configured ?? false))
       .catch(() => {});
@@ -201,7 +202,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
     if (!word || !ownerId.trim()) return;
     setSwLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/family/safe-word`, {
+      const r = await apiFetch(`${API_BASE}/api/family/safe-word`, {
         method: "POST",
         headers: familyHeaders(),
         body: JSON.stringify({ safe_word: word }),
@@ -220,7 +221,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
     setSwLoading(true);
     setSwCheckResult(null);
     try {
-      const r = await fetch(`${API_BASE}/api/family/safe-word/verify`, {
+      const r = await apiFetch(`${API_BASE}/api/family/safe-word/verify`, {
         method: "POST",
         headers: familyHeaders(),
         body: JSON.stringify({ answer }),
@@ -239,7 +240,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
     if (!name || !ownerId.trim()) return;
     setContactLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/family/contacts`, {
+      const r = await apiFetch(`${API_BASE}/api/family/contacts`, {
         method: "POST",
         headers: familyHeaders(),
         body: JSON.stringify({ name, telegram_username: contactUser.trim() }),
@@ -256,7 +257,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   const removeContact = async (id: string) => {
     if (!ownerId.trim()) return;
     try {
-      const r = await fetch(`${API_BASE}/api/family/contacts/${id}`, {
+      const r = await apiFetch(`${API_BASE}/api/family/contacts/${id}`, {
         method: "DELETE",
         headers: familyHeaders(),
       });
@@ -270,7 +271,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
     if (!claim || !ownerId.trim()) return;
     setPingLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/family/pings`, {
+      const r = await apiFetch(`${API_BASE}/api/family/pings`, {
         method: "POST",
         headers: familyHeaders(),
         body: JSON.stringify({ claim }),
@@ -286,7 +287,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   const respondPing = async (pingId: string, confirmed: boolean) => {
     if (!ownerId.trim()) return;
     try {
-      const r = await fetch(`${API_BASE}/api/family/pings/${pingId}/respond`, {
+      const r = await apiFetch(`${API_BASE}/api/family/pings/${pingId}/respond`, {
         method: "POST",
         headers: familyHeaders(),
         body: JSON.stringify({ confirmed }),
