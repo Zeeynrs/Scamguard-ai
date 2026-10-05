@@ -11,10 +11,12 @@ import FeedbackPanel from "@/components/FeedbackPanel";
 import Footer from "@/components/Footer";
 import { AccessCodeGate } from "@/components/AccessCodeGate";
 import { AccessCodeProvider } from "@/components/AccessCodeContext";
+import DemoSelector from "@/components/DemoSelector";
 
 export default function ScamGuardPage() {
   const [lang, setLang] = useState<Language>("en");
   const [mode, setMode] = useState<CheckerMode>("text");
+  const [demoText, setDemoText] = useState<string | null>(null);
 
   const scrollToChecker = useCallback(() => {
     const el = document.getElementById("checker");
@@ -42,7 +44,8 @@ export default function ScamGuardPage() {
         <Navbar language={lang} setLanguage={setLang} onCtaClick={goChecker} />
         <main>
           <Hero language={lang} onCtaClick={goChecker} onLiveClick={goLive} />
-          <ScamChecker language={lang} mode={mode} setMode={setMode} />
+          <DemoSelector language={lang} onSelect={setDemoText} />
+          <ScamChecker language={lang} mode={mode} setMode={setMode} demoText={demoText} />
           <HowItWorks language={lang} />
           <SecurityEducation language={lang} />
           <Architecture language={lang} />

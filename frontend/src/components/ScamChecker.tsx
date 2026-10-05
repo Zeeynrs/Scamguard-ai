@@ -193,34 +193,38 @@ const tacticLabels: Record<string, { en: string; id: string }> = {
   surveillance_pressure: { en: "Surveillance pressure", id: "Tekanan pengawasan" },
 };
 
-const examples: { id: string; en: string; idLabel: string; enLabel: string; text: string }[] = [
+const examples: { id: string; enLabel: string; idLabel: string; en: string; idText: string; enText: string }[] = [
   {
     id: "otp",
     enLabel: "Bank OTP",
     idLabel: "OTP bank",
     en: "Bank OTP",
-    text: "Halo dari Bank BCA, ada transaksi mencurigakan Rp15.000.000. Sebutkan kode OTP sekarang juga atau rekening diblokir.",
+    enText: "Hello from Bank of America, a suspicious $5,000 transaction detected. Provide the OTP now or your account will be frozen.",
+    idText: "Halo dari Bank BCA, ada transaksi mencurigakan Rp15.000.000. Sebutkan kode OTP sekarang juga atau rekening diblokir.",
   },
   {
     id: "delivery",
     enLabel: "Fake delivery",
     idLabel: "Paket palsu",
     en: "Fake delivery",
-    text: "Paketmu tertahan di bea cukai. Bayar biaya Rp185.000 lewat tautan ini dalam 1 jam atau paket dikembalikan: http://jnt-reschedule-pay.example/claim",
+    enText: "Your package is held at customs. Pay the $185 clearance fee via this link within 1 hour or it will be returned: http://jnt-reschedule-pay.example/claim",
+    idText: "Paketmu tertahan di bea cukai. Bayar biaya Rp185.000 lewat tautan ini dalam 1 jam atau paket dikembalikan: http://jnt-reschedule-pay.example/claim",
   },
   {
     id: "job",
     enLabel: "Job offer",
     idLabel: "Lowongan palsu",
     en: "Job offer",
-    text: "Selamat, kamu lolos interview remote. Transfer biaya seragam Rp450.000 ke rekening ini hari ini supaya kontrak aktif.",
+    enText: "Congratulations, you passed the remote interview. Transfer the uniform fee of $450 to this account today so your contract becomes active.",
+    idText: "Selamat, kamu lolos interview remote. Transfer biaya seragam Rp450.000 ke rekening ini hari ini supaya kontrak aktif.",
   },
   {
     id: "authority",
     enLabel: "Fake authority",
     idLabel: "Otoritas palsu",
     en: "Fake authority",
-    text: "Ini dari kepolisian. Rekeningmu terkait kasus. Jangan putus telepon. Transfer dana ke rekening aman yang kami sebutkan sekarang.",
+    enText: "This is from the Federal Police. Your account is linked to a case. Do not hang up. Transfer the funds to the secure account we provide now.",
+    idText: "Ini dari kepolisian. Rekeningmu terkait kasus. Jangan putus telepon. Transfer dana ke rekening aman yang kami sebutkan sekarang.",
   },
 ];
 
@@ -255,9 +259,10 @@ interface ScamCheckerProps {
   language: Language;
   mode: CheckerMode;
   setMode: (m: CheckerMode) => void;
+  demoText?: string | null;
 }
 
-export default function ScamChecker({ language, mode, setMode }: ScamCheckerProps) {
+export default function ScamChecker({ language, mode, setMode, demoText }: ScamCheckerProps) {
   const t = translations[language];
   const [kind, setKind] = useState<InputKind>("text");
   const [transcript, setTranscript] = useState("");
@@ -277,6 +282,16 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
     }, 900);
     return () => window.clearInterval(id);
   }, [loading]);
+
+  useEffect(() => {
+    if (!demoText) return;
+    setKind("message");
+    setTranscript(demoText);
+    setError(null);
+    setResult(null);
+    const el = document.getElementById("checker");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [demoText]);
 
   const placeholder =
     kind === "url"
@@ -492,7 +507,7 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
                           type="button"
                           onClick={() => {
                             setKind("message");
-                            setTranscript(ex.text);
+                            setTranscript(language === "id" ? ex.idText : ex.enText);
                             setError(null);
                           }}
                           className="px-3 py-1.5 rounded-full glass text-xs text-slate-300 hover:text-white hover:border-slate-600 focus-ring"
