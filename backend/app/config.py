@@ -73,6 +73,17 @@ class Settings(BaseSettings):
     # safe-word hashes, verification pings). Empty = backend/data/scamguard.db.
     db_path: str = ""
 
+    # --- Telegram bot (dual mode: polling container vs backend webhook) ---
+    # Token for the bot in both modes.
+    telegram_bot_token: str = ""
+    # Public webhook URL, e.g. "https://api.parallel-dungeons.site/api/bot/webhook".
+    # Empty = polling mode (bot container runs long polling). Set = backend
+    # serves Telegram updates via webhook, bot container idles.
+    bot_webhook_url: str = ""
+    # Optional secret sent as ?secret_token on set_webhook and verified per
+    # update via X-Telegram-Bot-Api-Secret-Token header.
+    bot_webhook_secret: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -21,6 +21,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 # Endpoints that invoke LLM / Whisper / torch — expensive in time and money.
 _EXPENSIVE_PREFIXES = ("/api/analyze/",)
 
+# Endpoints that must bypass the access-code gate and per-IP rate limiter:
+# Telegram delivers every update from its own server IPs, so an IP-based limit
+# would starve the bot, and Telegram cannot send our X-Access-Code header.
+# The endpoint authenticates callers itself via the webhook secret token.
+_UNTHROTTLED_PATHS = ("/api/bot/webhook",)
+
 
 class RateLimiter:
     """Sliding-window counter: max `limit` events per `window` seconds per key."""
@@ -106,8 +112,13 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Always allow health checks and CORS preflight
-        if request.method == "OPTIONS" or path == "/api/health":
+        # Always allow health checks, CORS preflight, and authenticated Telegram
+        # webhook traffic (the endpoint performs its own secret-token check).
+        if (
+            request.method == "OPTIONS"
+            or path == "/api/health"
+            or path in _UNTHROTTLED_PATHS
+        ):
             return await call_next(request)
 
         # --- Access-code gate ---

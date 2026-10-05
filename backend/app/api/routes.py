@@ -3,6 +3,7 @@ ScamGuard Multimodal — REST and WebSocket API routes.
 """
 import asyncio
 import base64
+import hmac
 import time
 from typing import Optional, List
 import numpy as np
@@ -11,6 +12,7 @@ from fastapi import (
     APIRouter, UploadFile, File, WebSocket, WebSocketDisconnect,
     HTTPException, Request, Query,
 )
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.core.schemas import (
@@ -383,6 +385,58 @@ async def moderate_feedback(feedback_id: str, payload: ModerateFeedbackRequest):
 async def feedback_counts():
     """Aggregate counts per status — feeds calibration dashboard."""
     return store.feedback_counts()
+
+
+# ---------------------------------------------------------------------------
+# Telegram Bot Webhook (dual mode)
+# ---------------------------------------------------------------------------
+
+@router.post("/bot/webhook")
+async def bot_webhook(request: Request):
+    """
+    Receive Telegram updates via webhook.
+
+    Active only when settings.bot_webhook_url is set. Telegram POSTs update JSON
+    here; we feed it into the same Application the polling bot container would
+    run. Optional bot_webhook_secret is verified via the
+    X-Telegram-Bot-Api-Secret-Token header.
+    """
+    if not settings.bot_webhook_url:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Webhook mode disabled. Set BOT_WEBHOOK_URL to enable."},
+        )
+
+    # Verify secret token (if configured) to reject forged requests.
+    if settings.bot_webhook_secret:
+        supplied = request.headers.get("x-telegram-bot-api-secret-token", "")
+        if not hmac.compare_digest(supplied, settings.bot_webhook_secret):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Invalid webhook secret token."},
+            )
+
+    try:
+        update_data = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Invalid JSON body."},
+        )
+
+    try:
+        from app.bot import process_webhook_update
+        await process_webhook_update(update_data)
+    except Exception as e:
+        print(f"[webhook] failed to process update: {e}")
+        # Per Telegram docs, still return 200 so they don't retry forever;
+        # log and move on.
+        return JSONResponse(
+            status_code=200,
+            content={"status": "error", "detail": "Update processing failed."},
+        )
+
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------

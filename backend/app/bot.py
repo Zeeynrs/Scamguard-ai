@@ -206,11 +206,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(f"❌ Analisis gagal: {e}")
 
 
-def main():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    if not token:
-        raise SystemExit("TELEGRAM_BOT_TOKEN not set")
+def build_application(token: str) -> Application:
+    """Construct the bot Application with all handlers registered.
 
+    Shared by long-polling mode (main()) and webhook mode (get_webhook_app()).
+    """
     app = Application.builder().token(token).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -219,6 +219,44 @@ def main():
         filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE |
         (filters.Document.ALL & filters.Document.AUDIO), handle_audio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    return app
+
+
+# Lazily built Application used in webhook mode. The backend imports this
+# module from request handlers, so nothing is constructed at import time.
+webhook_app: Optional[Application] = None
+
+
+async def get_webhook_app() -> Application:
+    """Return the webhook-mode Application, building and initializing it once."""
+    global webhook_app
+    if webhook_app is not None:
+        return webhook_app
+
+    token = settings.telegram_bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN not set; cannot run bot in webhook mode")
+
+    application = build_application(token)
+    await application.initialize()
+    webhook_app = application
+    logger.info("ScamGuard bot Application initialized (webhook mode)")
+    return application
+
+
+async def process_webhook_update(update_data: dict) -> None:
+    """Feed one raw Telegram update JSON into the bot's handler pipeline."""
+    application = await get_webhook_app()
+    update = Update.de_json(update_data, application.bot)
+    await application.process_update(update)
+
+
+def main():
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        raise SystemExit("TELEGRAM_BOT_TOKEN not set")
+
+    app = build_application(token)
 
     logger.info("ScamGuard bot starting (long polling)...")
     app.run_polling(drop_pending_updates=True)
