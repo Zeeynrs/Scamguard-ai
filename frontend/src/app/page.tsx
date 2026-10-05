@@ -7,6 +7,7 @@ import ScamChecker, { type CheckerMode, type Language } from "@/components/ScamC
 import HowItWorks from "@/components/HowItWorks";
 import SecurityEducation from "@/components/SecurityEducation";
 import Architecture from "@/components/Architecture";
+import FeedbackPanel from "@/components/FeedbackPanel";
 import Footer from "@/components/Footer";
 
 export default function ScamGuardPage() {
@@ -41,6 +42,11 @@ export default function ScamGuardPage() {
         <HowItWorks language={lang} />
         <SecurityEducation language={lang} />
         <Architecture language={lang} />
+        <section id="feedback" className="py-16 md:py-24 px-4 md:px-8">
+          <div className="max-w-4xl mx-auto">
+            <FeedbackPanel language={lang} />
+          </div>
+        </section>
       </main>
       <Footer language={lang} />
     </div>

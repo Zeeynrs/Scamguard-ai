@@ -23,6 +23,8 @@ from fastapi.testclient import TestClient
 def tmp_db(tmp_path, monkeypatch):
     db_file = tmp_path / "fam.db"
     monkeypatch.setenv("DB_PATH", str(db_file))
+    from app.config import settings
+    monkeypatch.setattr(settings, "db_path", str(db_file))
     # Reset the cached path + thread-local connections so each test starts clean.
     import app.safety.db as dbmod
     monkeypatch.setattr(dbmod, "_DB_PATH", "")
@@ -132,6 +134,8 @@ def _api_client(tmp_path, monkeypatch) -> TestClient:
     db_file = tmp_path / "api.db"
     monkeypatch.setenv("DB_PATH", str(db_file))
     import app.safety.db as dbmod
+    from app.config import settings
+    monkeypatch.setattr(settings, "db_path", str(db_file))
     monkeypatch.setattr(dbmod, "_DB_PATH", "")
     if hasattr(dbmod._local, "conn"):
         try:

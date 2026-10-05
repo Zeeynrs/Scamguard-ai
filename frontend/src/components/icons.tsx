@@ -54,4 +54,5 @@ export {
   EnvelopeSimpleOpen,
   Password,
   Key,
+  Flag,
 } from "@phosphor-icons/react";

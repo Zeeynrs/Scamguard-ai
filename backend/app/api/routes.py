@@ -26,6 +26,7 @@ from app.vision.analyzer import FaceAnalyzer
 from app.video.deepfake import VideoDeepfakeDetector
 from app.safety import build_guidance, store, evaluate_answer
 from app.safety.safeword import new_challenge
+from app.safety.notify import notify_ping
 
 router = APIRouter()
 
@@ -312,6 +313,10 @@ async def create_verification_ping(request: Request, payload: CreatePingRequest)
     if not payload.claim.strip():
         raise HTTPException(status_code=400, detail="Claim cannot be empty")
     ping = store.create_ping(owner, payload.claim.strip())
+    # Dispatch Telegram notifications to each Trust Circle contact (best-effort).
+    for contact in store.list_contacts(owner):
+        if contact.telegram_username:
+            notify_ping(contact.telegram_username, owner, payload.claim.strip(), ping.id)
     return {"status": "ok", "ping": ping.model_dump()}
 
 

@@ -304,10 +304,10 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
   const riskScore = result?.risk?.score ?? 0;
   const riskLevel = result?.risk?.level ?? "low";
 
-  const tabs: { id: CheckerMode; label: string; Icon: typeof ChatCircleText }[] = [
+  const tabs: { id: CheckerMode; label: string; Icon: typeof ChatCircleText; disabled?: boolean }[] = [
     { id: "text", label: t.text_tab, Icon: ChatCircleText },
     { id: "upload", label: t.upload_tab, Icon: Microphone },
-    { id: "live", label: t.live_monitor, Icon: VideoCamera },
+    { id: "live", label: `${t.live_monitor} (Inactive)`, Icon: VideoCamera, disabled: true },
   ];
 
   const kinds: { id: InputKind; label: string; Icon: typeof Globe }[] = [
@@ -416,16 +416,19 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
           role="tablist"
           aria-label={t.kicker}
         >
-          {tabs.map(({ id, label, Icon }) => (
+          {tabs.map(({ id, label, Icon, disabled }) => (
             <button
               key={id}
               role="tab"
               aria-selected={mode === id}
+              disabled={disabled}
               onClick={() => setMode(id)}
               className={`flex-1 px-2.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 focus-ring ${
                 mode === id
                   ? "bg-blue-600 text-white shadow-lg shadow-blue-500/25"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                  : disabled
+                    ? "text-slate-700 cursor-not-allowed"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
               }`}
             >
               <Icon size={17} weight={mode === id ? "fill" : "regular"} />
