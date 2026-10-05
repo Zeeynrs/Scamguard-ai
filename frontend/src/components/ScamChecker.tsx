@@ -62,6 +62,16 @@ export interface BackendAnalysisReport {
   };
   raw_scores?: Record<string, number | boolean>;
   family_guard?: FamilyGuardGuidance | null;
+  url_meta?: {
+    url: string;
+    final_url?: string;
+    domain?: string;
+    status_code?: number | null;
+    ssl_valid?: boolean;
+    redirect_count?: number;
+    fetch_error?: string | null;
+    content_preview?: string;
+  };
 }
 
 const translations = {
@@ -331,6 +341,54 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
     setError(null);
     setResult(null);
     try {
+      if (kind === "url") {
+        const urlResponse = await apiFetch(`${API_BASE}/api/analyze/url`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: transcript.trim(),
+            language,
+          }),
+        });
+        if (!urlResponse.ok) {
+          const body = await urlResponse.json().catch(() => null);
+          throw new Error(`HTTP ${urlResponse.status}: ${body?.detail || urlResponse.statusText}`);
+        }
+        const url: any = await urlResponse.json();
+        // Normalize URL report into the shape the result panel already renders.
+        setResult({
+          timestamp: new Date().toISOString(),
+          mode: "url",
+          intent_result: {
+            is_scam: (url.risk_score ?? 0) >= 0.5,
+            confidence: url.risk_score ?? 0,
+            tactics_detected: url.tactics_detected ?? [],
+            evidence: url.evidence ?? [],
+            risk_level: url.risk_level ?? "low",
+          },
+          risk: {
+            score: url.risk_score ?? 0,
+            level: url.risk_level ?? "low",
+            weighted_intent_llm: 0,
+            weighted_intent_rules: 0,
+            weighted_audio: 0,
+            weighted_video: 0,
+            indications: url.indications ?? [],
+            recommendation: url.explanation ?? "",
+          },
+          url_meta: {
+            url: url.url,
+            final_url: url.final_url,
+            domain: url.domain,
+            status_code: url.status_code,
+            ssl_valid: url.ssl_valid,
+            redirect_count: url.redirect_count,
+            fetch_error: url.fetch_error,
+            content_preview: url.content_preview,
+          },
+        });
+        return;
+      }
       const response = await apiFetch(`${API_BASE}/api/analyze/text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -717,7 +775,44 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
                       <CheckCircle size={16} weight="fill" />
                       {t.recommendation}
                     </h3>
-                    <p className="text-slate-300 text-sm leading-relaxed">{result.risk.recommendation}</p>
+                    <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-line">{result.risk.recommendation}</p>
+                  </div>
+                )}
+
+                {result.url_meta && (
+                  <div className="card p-5 space-y-3">
+                    <h3 className="text-xs uppercase tracking-[0.12em] font-mono text-slate-400 flex items-center gap-2">
+                      <Globe size={15} weight="fill" className="text-blue-400" />
+                      {language === "id" ? "Detail URL" : "URL Details"}
+                    </h3>
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                      <div className="glass p-3 rounded-xl">
+                        <dt className="text-slate-500 uppercase tracking-wider text-[10px]">Domain</dt>
+                        <dd className="text-slate-200 break-all mt-1">{result.url_meta.domain}</dd>
+                      </div>
+                      <div className="glass p-3 rounded-xl">
+                        <dt className="text-slate-500 uppercase tracking-wider text-[10px]">HTTP</dt>
+                        <dd className="text-slate-200 mt-1">
+                          {result.url_meta.status_code ?? "—"}
+                          {" · "}
+                          {result.url_meta.ssl_valid ? "SSL ✓" : "SSL ✗"}
+                          {" · "}
+                          {result.url_meta.redirect_count} redirect
+                        </dd>
+                      </div>
+                      {result.url_meta.final_url && result.url_meta.final_url !== result.url_meta.url && (
+                        <div className="glass p-3 rounded-xl sm:col-span-2">
+                          <dt className="text-slate-500 uppercase tracking-wider text-[10px]">Final URL</dt>
+                          <dd className="text-slate-200 break-all mt-1">{result.url_meta.final_url}</dd>
+                        </div>
+                      )}
+                      {result.url_meta.fetch_error && (
+                        <div className="glass p-3 rounded-xl sm:col-span-2">
+                          <dt className="text-slate-500 uppercase tracking-wider text-[10px]">Fetch</dt>
+                          <dd className="text-amber-300 mt-1">{result.url_meta.fetch_error}</dd>
+                        </div>
+                      )}
+                    </dl>
                   </div>
                 )}
 
@@ -738,7 +833,7 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
                   </div>
                 )}
 
-                {result.risk && (
+                {result.risk && !result.url_meta && (
                   <div className="card p-5 space-y-3">
                     <h3 className="text-xs uppercase tracking-[0.12em] font-mono text-slate-400 flex items-center gap-2">
                       <Sparkle size={15} weight="fill" className="text-blue-400" />

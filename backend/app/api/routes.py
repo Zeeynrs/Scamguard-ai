@@ -231,6 +231,29 @@ async def analyze_upload(
     )
 
 
+class UrlAnalysisRequest(BaseModel):
+    url: str
+    language: str = "en"
+
+
+@router.post("/analyze/url")
+async def analyze_url_endpoint(request: Request, payload: UrlAnalysisRequest):
+    """
+    URL scam analysis. Extracts domain signals, probes the target, runs content-based
+    intent classification, and returns a fused risk report.
+    """
+    if not payload.url.strip():
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
+
+    from app.url import analyze_url
+    try:
+        result = await analyze_url(payload.url, language=payload.language)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Family Protection: Safe Word, Trust Circle, Verification Pings
 # ---------------------------------------------------------------------------
