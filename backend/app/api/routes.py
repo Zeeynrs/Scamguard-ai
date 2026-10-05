@@ -29,6 +29,22 @@ from app.safety.safeword import new_challenge
 
 router = APIRouter()
 
+# Owner ID for Family Protection is provided via the X-Family-Owner header.
+# It is NEVER taken from the request body, so one caller cannot impersonate
+# another family's data just by changing a JSON field. In production this
+# header should be set by an authenticated gateway; for the demo it is a
+# self-declared label, but the server-side scoping is enforced the same way.
+def _owner(request: Request) -> str:
+    owner = request.headers.get("x-family-owner", "").strip()
+    if not owner:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing X-Family-Owner header. Set a unique owner id to isolate family data.",
+        )
+    if len(owner) > 128:
+        raise HTTPException(status_code=400, detail="Owner id too long (max 128 chars).")
+    return owner
+
 
 def _weights() -> dict:
     return {
@@ -47,12 +63,13 @@ def _attach_family_guard(
     safe_word_attempt: str = "",
 ) -> FamilyGuardGuidance:
     """Compose safe word + reply scripts + verification action checklist."""
-    expected = store.get_safe_word(owner)
     passed: Optional[bool] = None
+    expected = store.has_safe_word(owner) if owner else False
     if safe_word_attempt and expected:
-        passed = evaluate_answer(safe_word_attempt, expected)
+        passed = store.verify_safe_word_attempt(owner, safe_word_attempt)
 
-    challenge = new_challenge(language) if expected or "family_emergency" in intent_result.tactics_detected else ""
+    has_safe_word = expected
+    challenge = new_challenge(language) if has_safe_word or "family_emergency" in intent_result.tactics_detected else ""
     guidance_dict = build_guidance(
         tactics=intent_result.tactics_detected,
         risk_level=risk.level,
@@ -87,7 +104,7 @@ async def health():
 # ---------------------------------------------------------------------------
 
 @router.post("/analyze/text", response_model=AnalysisReport)
-async def analyze_text(payload: TextAnalysisRequest):
+async def analyze_text(request: Request, payload: TextAnalysisRequest):
     """
     Direct text analysis (transcript input).
     Runs intent engine + risk fusion + family protection reply scripts.
@@ -116,7 +133,7 @@ async def analyze_text(payload: TextAnalysisRequest):
         intent_result=intent_result,
         risk=risk,
         language=payload.language or "en",
-        owner="default",
+        owner=request.headers.get("x-family-owner", "").strip(),
         safe_word_attempt=payload.safe_word,
     )
 
@@ -192,7 +209,7 @@ async def analyze_upload(
         intent_result=intent_result,
         risk=risk,
         language="id" if detected_lang == "id" or language == "id" else "en",
-        owner="default",
+        owner=request.headers.get("x-family-owner", "").strip(),
         safe_word_attempt=safe_word,
     )
 
@@ -216,23 +233,19 @@ async def analyze_upload(
 # ---------------------------------------------------------------------------
 
 class SetSafeWordRequest(BaseModel):
-    owner: str = "default"
     safe_word: str
 
 
 class SafeWordCheckRequest(BaseModel):
-    owner: str = "default"
     answer: str
 
 
 class AddContactRequest(BaseModel):
-    owner: str = "default"
     name: str
     telegram_username: str = ""
 
 
 class CreatePingRequest(BaseModel):
-    owner: str = "default"
     claim: str
 
 
@@ -241,47 +254,51 @@ class RespondPingRequest(BaseModel):
 
 
 @router.post("/family/safe-word")
-async def set_safe_word(payload: SetSafeWordRequest):
-    """Set or update the family safe word for an owner."""
+async def set_safe_word(request: Request, payload: SetSafeWordRequest):
+    """Set or update the family safe word. Owner from X-Family-Owner header."""
+    owner = _owner(request)
     word = payload.safe_word.strip()
     if not word:
         raise HTTPException(status_code=400, detail="Safe word cannot be empty")
-    store.set_safe_word(payload.owner, word)
+    store.set_safe_word(owner, word)
     return {"status": "ok", "configured": True}
 
 
 @router.get("/family/safe-word")
-async def get_safe_word_status(owner: str = Query("default")):
+async def get_safe_word_status(request: Request):
     """Check whether a safe word is configured (without leaking the secret)."""
-    word = store.get_safe_word(owner)
-    return {"configured": bool(word)}
+    owner = _owner(request)
+    return {"configured": store.has_safe_word(owner)}
 
 
 @router.post("/family/safe-word/verify")
-async def verify_safe_word(payload: SafeWordCheckRequest):
-    """Verify an answer against the stored safe word."""
-    expected = store.get_safe_word(payload.owner)
-    if not expected:
+async def verify_safe_word(request: Request, payload: SafeWordCheckRequest):
+    """Verify an answer against the stored hash. Owner from X-Family-Owner."""
+    owner = _owner(request)
+    if not store.has_safe_word(owner):
         raise HTTPException(status_code=404, detail="No safe word configured for this family")
-    match = evaluate_answer(payload.answer, expected)
+    match = store.verify_safe_word_attempt(owner, payload.answer)
     return {"passed": match}
 
 
 @router.get("/family/contacts")
-async def list_contacts(owner: str = Query("default")):
+async def list_contacts(request: Request):
+    owner = _owner(request)
     return {"contacts": [c.model_dump() for c in store.list_contacts(owner)]}
 
 
 @router.post("/family/contacts")
-async def add_contact(payload: AddContactRequest):
+async def add_contact(request: Request, payload: AddContactRequest):
+    owner = _owner(request)
     if not payload.name.strip():
         raise HTTPException(status_code=400, detail="Name cannot be empty")
-    c = store.add_contact(payload.owner, payload.name.strip(), payload.telegram_username.strip())
+    c = store.add_contact(owner, payload.name.strip(), payload.telegram_username.strip())
     return {"status": "ok", "contact": c.model_dump()}
 
 
 @router.delete("/family/contacts/{contact_id}")
-async def remove_contact(contact_id: str, owner: str = Query("default")):
+async def remove_contact(request: Request, contact_id: str):
+    owner = _owner(request)
     ok = store.remove_contact(owner, contact_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Contact not found")
@@ -289,16 +306,18 @@ async def remove_contact(contact_id: str, owner: str = Query("default")):
 
 
 @router.post("/family/pings")
-async def create_verification_ping(payload: CreatePingRequest):
+async def create_verification_ping(request: Request, payload: CreatePingRequest):
     """Trigger a cross-verification ping to the Trust Circle."""
+    owner = _owner(request)
     if not payload.claim.strip():
         raise HTTPException(status_code=400, detail="Claim cannot be empty")
-    ping = store.create_ping(payload.owner, payload.claim.strip())
+    ping = store.create_ping(owner, payload.claim.strip())
     return {"status": "ok", "ping": ping.model_dump()}
 
 
 @router.get("/family/pings")
-async def list_pings(owner: str = Query("default")):
+async def list_pings(request: Request):
+    owner = _owner(request)
     return {"pings": [p.model_dump() for p in store.list_pings(owner)]}
 
 

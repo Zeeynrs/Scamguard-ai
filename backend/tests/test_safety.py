@@ -43,7 +43,6 @@ def test_build_guidance_speaks_indonesian_when_requested():
     from app.safety.scripts import build_guidance
 
     guidance = build_guidance(tactics=["financial_demand"], risk_level="high", language="id")
-
     script = guidance["reply_scripts"][0]
     assert "telepon balik" in script["say"].lower() or "transfer" in script["say"].lower()
 
@@ -99,22 +98,51 @@ def test_new_challenge_returns_a_prompt():
 
 
 # ---------------------------------------------------------------------------
-# Store — safe word + trust circle + verification pings
+# Store — safe word (hash) + trust circle + verification pings
 # ---------------------------------------------------------------------------
 
-def test_safe_word_roundtrip():
-    from app.safety.store import SafetyStore
+@pytest.fixture
+def fresh_store(tmp_path, monkeypatch):
+    """Provide a FamilyStore pointing at a temporary SQLite file."""
+    import app.safety.db as dbmod
+    db_file = str(tmp_path / "test.db")
+    monkeypatch.setattr(dbmod, "_DB_PATH", db_file)
+    if hasattr(dbmod._local, "conn"):
+        try:
+            dbmod._local.conn.close()
+        except Exception:
+            pass
+        delattr(dbmod._local, "conn")
+    from app.safety.store import FamilyStore
+    return FamilyStore()
 
-    s = SafetyStore()
+
+def test_safe_word_is_hashed(fresh_store):
+    s = fresh_store
     s.set_safe_word("user-a", "bunga melati")
-    assert s.get_safe_word("user-a") == "bunga melati"
-    assert s.get_safe_word("user-unknown") is None
+
+    # get_safe_word should NOT return the plaintext
+    marker = s.get_safe_word("user-a")
+    assert marker is not None
+    assert "bunga" not in str(marker).lower()
+
+    # has_safe_word must be True
+    assert s.has_safe_word("user-a") is True
+    assert s.has_safe_word("user-unknown") is False
 
 
-def test_trust_circle_add_and_list():
-    from app.safety.store import SafetyStore
+def test_safe_word_verify_roundtrip(fresh_store):
+    s = fresh_store
+    s.set_safe_word("user-a", "Bunga Melati")
 
-    s = SafetyStore()
+    assert s.verify_safe_word_attempt("user-a", "bunga melati") is True
+    assert s.verify_safe_word_attempt("user-a", "BUNGA MELATI") is True
+    assert s.verify_safe_word_attempt("user-a", "bunga mawar") is False
+    assert s.verify_safe_word_attempt("user-unknown", "bunga melati") is False
+
+
+def test_trust_circle_add_and_list(fresh_store):
+    s = fresh_store
     contact = s.add_contact("user-b", name="Anak", telegram_username="@anak")
     contacts = s.list_contacts("user-b")
 
@@ -124,10 +152,8 @@ def test_trust_circle_add_and_list():
     assert contacts[0].id == contact.id
 
 
-def test_trust_circle_remove():
-    from app.safety.store import SafetyStore
-
-    s = SafetyStore()
+def test_trust_circle_remove(fresh_store):
+    s = fresh_store
     contact = s.add_contact("user-c", name="Ibu", telegram_username="@ibu")
     assert s.remove_contact("user-c", contact.id) is True
     assert s.list_contacts("user-c") == []
@@ -135,32 +161,25 @@ def test_trust_circle_remove():
     assert s.remove_contact("user-c", contact.id) is False
 
 
-def test_ping_lifecycle_starts_pending_then_confirms():
-    from app.safety.store import SafetyStore
-
-    s = SafetyStore()
+def test_ping_lifecycle_starts_pending_then_confirms(fresh_store):
+    s = fresh_store
     ping = s.create_ping("user-d", claim="Mengaku anak sedang diculik")
     assert ping.status == "pending"
     assert ping.claim == "Mengaku anak sedang diculik"
 
     resolved = s.respond(ping.id, confirmed_identity=True)
-    assert resolved.status == "confirmed"
-    assert s.get_ping(ping.id).status == "confirmed"
+    assert resolved.status == "verified_real"
 
 
-def test_ping_response_can_flag_impostor():
-    from app.safety.store import SafetyStore
-
-    s = SafetyStore()
+def test_ping_response_can_flag_impostor(fresh_store):
+    s = fresh_store
     ping = s.create_ping("user-e", claim="Mengaku istri butuh uang")
     resolved = s.respond(ping.id, confirmed_identity=False)
 
-    assert resolved.status == "impostor"
-    assert any(p.id == ping.id and p.status == "impostor" for p in s.list_pings("user-e"))
+    assert resolved.status == "impostor_alert"
+    assert any(p.id == ping.id and p.status == "impostor_alert" for p in s.list_pings("user-e"))
 
 
-def test_respond_to_unknown_ping_returns_none():
-    from app.safety.store import SafetyStore
-
-    s = SafetyStore()
+def test_respond_to_unknown_ping_returns_none(fresh_store):
+    s = fresh_store
     assert s.respond("does-not-exist", confirmed_identity=True) is None

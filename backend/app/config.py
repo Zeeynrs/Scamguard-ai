@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # Optional shared access code. Empty = open demo. When set, clients must
     # send header "X-Access-Code: <value>".
     access_code: str = ""
+    # SQLite persistence file for Family Protection data (trust circle,
+    # safe-word hashes, verification pings). Empty = backend/data/scamguard.db.
+    db_path: str = ""
 
     class Config:
         env_file = ".env"
