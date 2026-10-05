@@ -22,6 +22,7 @@ import {
   Info,
 } from "@/components/icons";
 import { apiFetch } from "@/lib/api";
+import { DEMO_STEPS } from "@/components/DemoStepper";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -259,10 +260,10 @@ interface ScamCheckerProps {
   language: Language;
   mode: CheckerMode;
   setMode: (m: CheckerMode) => void;
-  demoText?: string | null;
+  activeStep?: number;
 }
 
-export default function ScamChecker({ language, mode, setMode, demoText }: ScamCheckerProps) {
+export default function ScamChecker({ language, mode, setMode, activeStep }: ScamCheckerProps) {
   const t = translations[language];
   const [kind, setKind] = useState<InputKind>("text");
   const [transcript, setTranscript] = useState("");
@@ -284,14 +285,16 @@ export default function ScamChecker({ language, mode, setMode, demoText }: ScamC
   }, [loading]);
 
   useEffect(() => {
-    if (!demoText) return;
+    if (activeStep === undefined) return;
+    const step = DEMO_STEPS[activeStep];
+    if (!step) return;
     setKind("message");
-    setTranscript(demoText);
+    setTranscript(language === "id" ? step.idText : step.enText);
     setError(null);
     setResult(null);
     const el = document.getElementById("checker");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [demoText]);
+  }, [activeStep, language]);
 
   const placeholder =
     kind === "url"
@@ -497,10 +500,11 @@ export default function ScamChecker({ language, mode, setMode, demoText }: ScamC
                   />
 
                   <div>
-                    <p className="text-[11px] font-mono uppercase tracking-[0.12em] text-slate-500 mb-2">
+                    <p className="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-2 flex items-center gap-2">
+                      <span className="inline-block w-3 h-px bg-slate-700" />
                       {t.examples}
                     </p>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5">
                       {examples.map((ex) => (
                         <button
                           key={ex.id}
@@ -510,7 +514,7 @@ export default function ScamChecker({ language, mode, setMode, demoText }: ScamC
                             setTranscript(language === "id" ? ex.idText : ex.enText);
                             setError(null);
                           }}
-                          className="px-3 py-1.5 rounded-full glass text-xs text-slate-300 hover:text-white hover:border-slate-600 focus-ring"
+                          className="px-2.5 py-1 rounded-md text-[11px] text-slate-400 hover:text-white border border-slate-800 hover:border-slate-600 bg-slate-900/40 hover:bg-slate-800/60 focus-ring transition-colors"
                         >
                           {language === "id" ? ex.idLabel : ex.enLabel}
                         </button>
