@@ -146,9 +146,33 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   const [pingLoading, setPingLoading] = useState(false);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const OWNER_STORAGE_KEY = "scamguard_family_owner";
 
   // Owner ID for family data isolation (header-based, not body)
   const [ownerId, setOwnerId] = useState<string>("");
+  const [ownerTouched, setOwnerTouched] = useState(false);
+
+  // Restore owner from localStorage on mount so data persists across reloads.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(OWNER_STORAGE_KEY);
+    if (saved) {
+      setOwnerId(saved);
+      setOwnerTouched(true);
+    }
+  }, []);
+
+  // Persist whenever the user changes it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (ownerTouched) {
+      if (ownerId.trim()) {
+        window.localStorage.setItem(OWNER_STORAGE_KEY, ownerId.trim());
+      } else {
+        window.localStorage.removeItem(OWNER_STORAGE_KEY);
+      }
+    }
+  }, [ownerId, ownerTouched]);
 
   const familyHeaders = useCallback(
     (extra: Record<string, string> = {}) => ({
@@ -308,10 +332,25 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
         <input
           type="text"
           value={ownerId}
-          onChange={(e) => setOwnerId(e.target.value)}
+          onChange={(e) => {
+            setOwnerId(e.target.value);
+            setOwnerTouched(true);
+          }}
           placeholder={language === "id" ? "mis. keluarga-budi" : "e.g. family-budi"}
           className="input-field h-9 text-sm"
         />
+        <p className="text-[11px] text-slate-500">
+          {language === "id"
+            ? "Kosongkan untuk data demo. Isi agar data disimpan antar sesi."
+            : "Leave empty for demo data. Fill this so your data persists across sessions."}
+        </p>
+        {!ownerId.trim() && (
+          <p className="text-[11px] text-amber-400">
+            {language === "id"
+              ? "Masukkan Family ID dulu agar Safe Word, Trust Circle, dan Ping bisa disimpan."
+              : "Enter a Family ID first so Safe Word, Trust Circle, and Pings can be saved."}
+          </p>
+        )}
         <p className="text-[11px] text-slate-500">
           {language === "id"
             ? "Semua data keluarga (kata sandi, kontak, ping) terpisah berdasarkan ID ini. Wajib diisi sebelum menyimpan data."
