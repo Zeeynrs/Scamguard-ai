@@ -22,7 +22,6 @@ import {
   Info,
 } from "@/components/icons";
 import { apiFetch } from "@/lib/api";
-import { DEMO_STEPS } from "@/components/DemoStepper";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -260,10 +259,9 @@ interface ScamCheckerProps {
   language: Language;
   mode: CheckerMode;
   setMode: (m: CheckerMode) => void;
-  activeStep?: number;
 }
 
-export default function ScamChecker({ language, mode, setMode, activeStep }: ScamCheckerProps) {
+export default function ScamChecker({ language, mode, setMode }: ScamCheckerProps) {
   const t = translations[language];
   const [kind, setKind] = useState<InputKind>("text");
   const [transcript, setTranscript] = useState("");
@@ -283,18 +281,6 @@ export default function ScamChecker({ language, mode, setMode, activeStep }: Sca
     }, 900);
     return () => window.clearInterval(id);
   }, [loading]);
-
-  useEffect(() => {
-    if (activeStep === undefined) return;
-    const step = DEMO_STEPS[activeStep];
-    if (!step) return;
-    setKind("message");
-    setTranscript(language === "id" ? step.idText : step.enText);
-    setError(null);
-    setResult(null);
-    const el = document.getElementById("checker");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [activeStep, language]);
 
   const placeholder =
     kind === "url"
