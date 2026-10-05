@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # Max requests per client IP per window.
     rate_limit_requests: int = 30
     rate_limit_window_seconds: int = 60
+    # Tighter limit for expensive endpoints (analyze/*) to protect LLM credits.
+    rate_limit_expensive: int = 10
     # Max upload size for /analyze/upload (megabytes).
     max_upload_mb: int = 25
     # Optional shared access code. Empty = open demo. When set, clients must

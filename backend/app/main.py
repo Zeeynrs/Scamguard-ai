@@ -31,6 +31,7 @@ app.add_middleware(
 app.add_middleware(
     SecurityMiddleware,
     rate_limit=settings.rate_limit_requests,
+    rate_limit_expensive=settings.rate_limit_expensive,
     window=settings.rate_limit_window_seconds,
     access_code=settings.access_code,
 )

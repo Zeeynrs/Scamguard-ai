@@ -20,6 +20,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip \
  && pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu \
+ && find /usr/local/lib/python3.11/site-packages/torch -type d -name "test" -prune -exec rm -rf {} + \
  && grep -v -E "^(torch|torchaudio)==" requirements.txt > /tmp/req.txt \
  && pip install -r /tmp/req.txt
 
