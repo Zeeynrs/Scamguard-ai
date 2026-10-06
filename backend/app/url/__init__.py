@@ -4,6 +4,7 @@ Fuses static domain signals (homoglyph, typosquatting, suspicious TLD) with
 a lightweight HTTP probe and content-based intent classification.
 """
 import re
+import socket
 import ssl
 import urllib.parse
 from dataclasses import dataclass
@@ -36,6 +37,26 @@ SUSPICIOUS_KEYWORDS = [
     "signin", "banking", "wallet", "claim", "reward", "prize", "won",
     "urgent", "suspended", "limited", "expired", "recover", "unlock",
 ]
+
+
+SSRF_GUARD = (
+    r"^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|"
+    r"0\.0\.0\.0|169\.254\.|224\.|240\.|"
+    r"\[::1\]|\[fe80:|\[fc00:|\[fd)"
+)
+
+
+def _is_private_ip(hostname: str) -> bool:
+    """Check if hostname resolves to private/internal IP (SSRF guard)."""
+    try:
+        info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _, _, _, _, sockaddr in info:
+            ip = sockaddr[0]
+            if re.match(SSRF_GUARD, ip):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _domain_from_url(raw_url: str) -> Tuple[Optional[str], Optional[urllib.parse.ParseResult]]:
@@ -161,6 +182,12 @@ async def _probe_url(url: str) -> UrlSignals:
         typosquatting_brand=typosquatting_brand,
         path_score=path_score,
     )
+
+    # SSRF guard: skip HTTP probe if domain resolves to private/internal IP
+    hostname = parsed.hostname or ""
+    if _is_private_ip(hostname):
+        signals.fetch_error = "Private/internal address blocked (SSRF guard)"
+        return signals
 
     # HTTP probe
     try:
