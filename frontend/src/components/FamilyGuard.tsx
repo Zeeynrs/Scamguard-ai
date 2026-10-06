@@ -604,6 +604,23 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
           <p className="text-xs text-slate-600 italic">{t.noPings}</p>
         )}
 
+        {/* Quick demo claims (one-click fill) */}
+        <div className="flex flex-wrap gap-1.5">
+          {(language === "id"
+            ? ["Aku polisi, anakmu kecelakaan, transfer sekarang", "Ini bank, konfirmasi OTP-nya ya"]
+            : ["Police here, your son had an accident, pay now", "This is your bank, confirm the OTP"]
+          ).map((claim) => (
+            <button
+              key={claim}
+              type="button"
+              onClick={() => setPingClaim(claim)}
+              className="text-[11px] px-2 py-1 rounded-full border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors"
+            >
+              {claim}
+            </button>
+          ))}
+        </div>
+
         <div className="flex gap-2">
           <input
             type="text"
