@@ -11,8 +11,10 @@ import {
   Check,
   X,
   Password,
+  Sparkle,
 } from "@/components/icons";
 import { apiFetch } from "@/lib/api";
+import FamilyOnboardingModal from "@/components/FamilyOnboardingModal";
 
 // -------------------------------------------------------
 // Types
@@ -151,6 +153,7 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   // Owner ID for family data isolation (header-based, not body)
   const [ownerId, setOwnerId] = useState<string>("");
   const [ownerTouched, setOwnerTouched] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   // Restore owner from localStorage on mount so data persists across reloads.
   useEffect(() => {
@@ -326,9 +329,19 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
     <div className="space-y-5">
       {/* 0. Family owner identity (data isolation) */}
       <div className="card p-4 space-y-2">
-        <label className="text-[11px] font-mono uppercase text-slate-400">
-          {language === "id" ? "ID Keluarga" : "Family ID"}
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] font-mono uppercase text-slate-400">
+            {language === "id" ? "ID Keluarga" : "Family ID"}
+          </label>
+          <button
+            type="button"
+            onClick={() => setWizardOpen(true)}
+            className="text-[11px] px-2 py-1 rounded-md border border-cyan-500/40 text-cyan-300 bg-cyan-950/30 hover:bg-cyan-900/40 flex items-center gap-1.5 transition-colors"
+          >
+            <Sparkle size={12} weight="fill" />
+            {language === "id" ? "Panduan Setup" : "Setup Wizard"}
+          </button>
+        </div>
         <input
           type="text"
           value={ownerId}
@@ -641,6 +654,18 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
           </button>
         </div>
       </div>
+      <FamilyOnboardingModal
+        isOpen={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        language={language}
+        onComplete={(id) => {
+          setOwnerId(id);
+          setOwnerTouched(true);
+          setSwConfigured(true);
+          fetchContacts();
+          fetchPings();
+        }}
+      />
     </div>
   );
 }
