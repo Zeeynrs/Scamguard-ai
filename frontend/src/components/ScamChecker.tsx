@@ -20,6 +20,8 @@ import {
   Check,
   ArrowClockwise,
   Info,
+  Clock,
+  Flag,
 } from "@/components/icons";
 import { apiFetch } from "@/lib/api";
 
@@ -280,6 +282,35 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
   const [result, setResult] = useState<BackendAnalysisReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState<"scam" | "safe" | "error" | null>(null);
+  const [history, setHistory] = useState<BackendAnalysisReport[]>([]);
+
+  // Persist last 5 results in localStorage
+  useEffect(() => {
+    if (!result) return;
+    setHistory((prev) => {
+      const next = [result, ...prev.filter((r) => r.timestamp !== result?.timestamp)].slice(0, 5);
+      try {
+        window.localStorage.setItem("scamguard_history", JSON.stringify(next));
+      } catch {
+        // Storage full or unavailable — ignore
+      }
+      return next;
+    });
+  }, [result]);
+
+  // Restore history on mount
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("scamguard_history");
+      if (raw) {
+        const parsed: BackendAnalysisReport[] = JSON.parse(raw);
+        if (Array.isArray(parsed)) setHistory(parsed.slice(0, 5));
+      }
+    } catch {
+      // Corrupted data — start fresh
+    }
+  }, []);
 
   useEffect(() => {
     if (!loading) {
@@ -405,6 +436,27 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
       setError(`${t.connection_failed} (${message})`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const submitFeedback = async (actualIsScam: boolean) => {
+    if (!result) return;
+    setFeedbackSent(null);
+    try {
+      const excerpt = (transcript || result.audio_result?.transcript || "").slice(0, 500) || "[no text]";
+      const res = await apiFetch(`${API_BASE}/api/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          excerpt,
+          is_scam: actualIsScam,
+          comment: `User correction from web UI. Model verdict: ${result.risk?.level ?? "unknown"} (${((result.risk?.score ?? 0) * 100).toFixed(1)}%).`,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setFeedbackSent(actualIsScam ? "scam" : "safe");
+    } catch {
+      setFeedbackSent("error");
     }
   };
 
@@ -922,6 +974,70 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
                 )}
 
                 <FamilyGuard guidance={result?.family_guard ?? null} language={language} />
+
+                {history.length > 0 && (
+                  <div className="card p-4 space-y-2">
+                    <h3 className="text-[10px] uppercase tracking-[0.12em] font-mono text-slate-500 flex items-center gap-2">
+                      <Clock size={14} weight="fill" className="text-slate-400" />
+                      {language === "id" ? "5 Riwayat terakhir" : "Last 5 checks"}
+                    </h3>
+                    <ul className="space-y-1.5">
+                      {history.map((h, i) => (
+                        <li key={i} className="flex items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setResult(h)}
+                            className="text-left text-xs text-slate-300 hover:text-white transition-colors truncate flex-1"
+                            title={h.mode}
+                          >
+                            <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                              h.risk?.level === "critical" ? "bg-red-500" :
+                              h.risk?.level === "high" ? "bg-orange-500" :
+                              h.risk?.level === "medium" ? "bg-yellow-500" : "bg-emerald-500"
+                            }`} />
+                            {h.mode.toUpperCase()} — {(h.risk?.score ?? 0 * 100).toFixed(0)}%
+                          </button>
+                          <span className="text-[10px] font-mono text-slate-600">
+                            {new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="card p-4 space-y-2">
+                  <h3 className="text-[10px] uppercase tracking-[0.12em] font-mono text-slate-500 flex items-center gap-2">
+                    <Flag size={14} weight="fill" className="text-slate-400" />
+                    {language === "id" ? "Koreksi hasil ini?" : "Was this wrong?"}
+                  </h3>
+                  {feedbackSent === "error" ? (
+                    <p className="text-xs text-red-400">
+                      {language === "id" ? "Gagal mengirim laporan." : "Could not send report."}
+                    </p>
+                  ) : feedbackSent ? (
+                    <p className="text-xs text-emerald-400">
+                      {language === "id" ? "Terima kasih — laporan terkirim." : "Thanks — report submitted."}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => submitFeedback(true)}
+                        className="px-3 py-1.5 rounded-lg text-xs border border-red-500/40 text-red-300 bg-red-950/20 hover:bg-red-900/40 transition-colors"
+                      >
+                        {language === "id" ? "Ini sebenarnya penipuan" : "This was actually a scam"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => submitFeedback(false)}
+                        className="px-3 py-1.5 rounded-lg text-xs border border-emerald-500/40 text-emerald-300 bg-emerald-950/20 hover:bg-emerald-900/40 transition-colors"
+                      >
+                        {language === "id" ? "Ini sebenarnya aman" : "This was actually safe"}
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex flex-wrap gap-3">
                   <button type="button" className="btn-secondary" onClick={copySummary}>

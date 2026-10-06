@@ -9,6 +9,7 @@ import SecurityEducation from "@/components/SecurityEducation";
 import Architecture from "@/components/Architecture";
 import FeedbackPanel from "@/components/FeedbackPanel";
 import Footer from "@/components/Footer";
+import ModelHealthBadge from "@/components/ModelHealthBadge";
 import { AccessCodeGate } from "@/components/AccessCodeGate";
 import { AccessCodeProvider } from "@/components/AccessCodeContext";
 
@@ -40,6 +41,9 @@ export default function ScamGuardPage() {
       <div className="min-h-[100svh] bg-slate-950 text-slate-100 app-backdrop">
         <AccessCodeGate language={lang} />
         <Navbar language={lang} setLanguage={setLang} onCtaClick={goChecker} />
+        <div className="fixed top-[70px] right-3 z-30">
+          <ModelHealthBadge language={lang} />
+        </div>
         <main>
           <Hero language={lang} onCtaClick={goChecker} onLiveClick={goLive} />
           <ScamChecker language={lang} mode={mode} setMode={setMode} />
