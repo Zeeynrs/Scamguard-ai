@@ -408,6 +408,33 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
     }
   };
 
+  const loadDemoAudio = async (filename: string, sampleName: string) => {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/demo/${filename}`);
+      if (!res.ok) throw new Error("Could not load sample audio");
+      const blob = await res.blob();
+      const file = new File([blob], sampleName, { type: "audio/ogg" });
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await apiFetch(`${API_BASE}/api/analyze/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const data = await response.json();
+      setResult(data);
+      if (data.audio_result?.transcript) setTranscript(data.audio_result.transcript);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Sample load failed";
+      setError(`${t.upload_failed} (${message})`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const uploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -583,6 +610,27 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
                       className="sr-only"
                     />
                   </label>
+                  <div className="flex flex-wrap justify-center items-center gap-2 mt-4">
+                    <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500">
+                      {language === "id" ? "Atau coba sampel:" : "Or try a sample:"}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => loadDemoAudio("scam_voice_id.ogg", "scam_sample.ogg")}
+                      className="px-2.5 py-1 rounded-full text-[11px] border border-red-500/40 text-red-300 bg-red-950/20 hover:bg-red-900/40 hover:border-red-400 transition-colors"
+                    >
+                      {language === "id" ? "🚨 Voice Note Penipuan (ID)" : "🚨 Scam Voice Note (ID)"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => loadDemoAudio("normal_voice_id.ogg", "normal_sample.ogg")}
+                      className="px-2.5 py-1 rounded-full text-[11px] border border-slate-700 text-slate-400 bg-slate-900/40 hover:bg-slate-800/60 hover:text-slate-200 transition-colors"
+                    >
+                      {language === "id" ? "✓ Voice Note Biasa (ID)" : "✓ Normal Voice Note (ID)"}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -762,7 +810,21 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
                           key={`${ev}-${idx}`}
                           className="glass border-slate-800/60 px-3.5 py-2.5 rounded-lg text-xs md:text-sm font-mono text-slate-300"
                         >
-                          {ev}
+                          {(() => {
+                            // Evidence quotes the exact phrase that triggered a signal.
+                            // Render it as React nodes (not injected HTML) to keep user text XSS-safe.
+                            const match = ev.match(/^(.*?)("[^"]+")(.*)$/);
+                            if (!match) return ev;
+                            return (
+                              <>
+                                {match[1]}
+                                <mark className="bg-amber-500/20 text-amber-200 px-1 py-0.5 rounded border border-amber-500/40">
+                                  {match[2]}
+                                </mark>
+                                {match[3]}
+                              </>
+                            );
+                          })()}
                         </li>
                       ))}
                     </ul>
