@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ShieldCheck,
   LockKey,
@@ -36,6 +36,13 @@ export default function FamilyOnboardingModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-fill with random on open if empty
+  useEffect(() => {
+    if (isOpen && !familyId) {
+      setFamilyId("fam-" + Math.random().toString(36).substring(2, 8));
+    }
+  }, [isOpen, familyId]);
+
   if (!isOpen) return null;
 
   const t = {
@@ -59,8 +66,8 @@ export default function FamilyOnboardingModal({
     step3Title: language === "id" ? "3. Tambah Kontak Trust Circle" : "3. Add a Trust Circle Contact",
     step3Desc:
       language === "id"
-        ? "Kontak keluarga yang akan di-ping otomatis saat verifikasi (opsional)."
-        : "A family contact who will receive verification pings via Telegram (optional).",
+        ? "Kontak keluarga yang akan di-ping otomatis saat verifikasi (opsional). Pastikan mereka sudah /start @S_cam_Guard_AI_bot."
+        : "A family contact who will receive verification pings via Telegram (optional). Ensure they have /start-ed @S_cam_Guard_AI_bot.",
     contactNamePlaceholder: language === "id" ? "mis. Ayah / Ibu / Budi" : "e.g. Mom / Dad / Alex",
     contactTgPlaceholder: "@username_telegram",
     next: language === "id" ? "Lanjut" : "Next",

@@ -39,6 +39,8 @@ interface Contact {
   owner: string;
   name: string;
   telegram_username: string;
+  /** True when the backend holds a deliverable chat_id (contact has /start-ed the bot). */
+  ping_ready?: boolean;
 }
 
 interface Ping {
@@ -156,11 +158,17 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   const [wizardOpen, setWizardOpen] = useState(false);
 
   // Restore owner from localStorage on mount so data persists across reloads.
+  // If empty, generate a short default so all features work immediately out of the box.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(OWNER_STORAGE_KEY);
-    if (saved) {
-      setOwnerId(saved);
+    if (saved && saved.trim()) {
+      setOwnerId(saved.trim());
+      setOwnerTouched(true);
+    } else {
+      const generated = "fam-" + Math.random().toString(36).substring(2, 8);
+      setOwnerId(generated);
+      window.localStorage.setItem(OWNER_STORAGE_KEY, generated);
       setOwnerTouched(true);
     }
   }, []);
@@ -512,7 +520,14 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
                 <div>
                   <p className="text-sm font-semibold text-slate-200">{c.name}</p>
                   {c.telegram_username && (
+                  <>
                     <p className="text-xs text-slate-500">{c.telegram_username}</p>
+                    <p className={`text-[11px] ${c.ping_ready ? "text-emerald-400" : "text-amber-400"}`}>
+                      {c.ping_ready
+                        ? (language === "id" ? "· siap terima ping" : "· ready for pings")
+                        : (language === "id" ? "· belum /start bot" : "· hasn't /start-ed bot")}
+                    </p>
+                  </>
                   )}
                 </div>
                 <button
@@ -530,6 +545,12 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
         {contacts.length === 0 && (
           <p className="text-xs text-slate-600 italic">{t.noContacts}</p>
         )}
+
+        <p className="text-[11px] text-slate-500">
+          {language === "id"
+            ? "💡 Agar kontak bisa menerima notifikasi ping, pastikan mereka sudah buka dan ketik /start di bot @S_cam_Guard_AI_bot terlebih dahulu."
+            : "💡 For contacts to receive telegram pings, ensure they have opened and sent /start to @S_cam_Guard_AI_bot first."}
+        </p>
 
         <div className="flex flex-col sm:flex-row gap-2">
           <input
@@ -578,14 +599,18 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
                   </span>
                   <span
                     className={`badge text-[10px] uppercase font-mono ${
-                      p.status === "confirmed"
+                      p.status === "confirmed" || p.status === "verified_real"
                         ? "badge-low text-emerald-400"
-                        : p.status === "impostor"
+                        : p.status === "impostor" || p.status === "impostor_alert"
                           ? "badge-critical text-red-400"
                           : "badge-medium text-yellow-400"
                     }`}
                   >
-                    {p.status}
+                    {p.status === "verified_real"
+                      ? (language === "id" ? "Identitas Asli" : "Real Identity")
+                      : p.status === "impostor_alert"
+                        ? (language === "id" ? "Penipu Terdeteksi" : "Impostor Flagged")
+                        : p.status}
                   </span>
                 </div>
                 <p className="text-xs text-slate-200">"{p.claim}"</p>

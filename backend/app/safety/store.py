@@ -109,23 +109,48 @@ class FamilyStore:
                 """,
                 (cid, owner, name, telegram_username, time.time()),
             )
+            # If user already started bot, fetch their chat_id for future pings.
+            if telegram_username:
+                row = conn.execute(
+                    "SELECT chat_id FROM telegram_users WHERE username = ?",
+                    (telegram_username.lstrip('@'),),
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        "UPDATE trust_circle SET telegram_chat_id = ? WHERE id = ?",
+                        (row["chat_id"], cid),
+                    )
         return TrustContact(id=cid, owner=owner, name=name, telegram_username=telegram_username)
 
     def list_contacts(self, owner: str) -> List[TrustContact]:
         conn = get_conn()
         rows = conn.execute(
-            "SELECT id, owner, name, telegram_username FROM trust_circle WHERE owner = ? ORDER BY created_at ASC",
+            "SELECT id, owner, name, telegram_username, telegram_chat_id FROM trust_circle WHERE owner = ? ORDER BY created_at ASC",
             (owner,),
         ).fetchall()
-        return [
-            TrustContact(
-                id=r["id"],
-                owner=r["owner"],
-                name=r["name"],
-                telegram_username=r["telegram_username"],
+        out: List[TrustContact] = []
+        for r in rows:
+            uname = r["telegram_username"] or ""
+            chat_id = r["telegram_chat_id"] or ""
+            # Fall back to the telegram_users registry so readiness is accurate
+            # even for contacts added before the user started the bot.
+            if not chat_id and uname:
+                hit = conn.execute(
+                    "SELECT chat_id FROM telegram_users WHERE username = ?",
+                    (uname.lstrip("@"),),
+                ).fetchone()
+                if hit:
+                    chat_id = hit["chat_id"]
+            out.append(
+                TrustContact(
+                    id=r["id"],
+                    owner=r["owner"],
+                    name=r["name"],
+                    telegram_username=uname,
+                    ping_ready=bool(chat_id),
+                )
             )
-            for r in rows
-        ]
+        return out
 
     def remove_contact(self, owner: str, contact_id: str) -> bool:
         with transaction() as conn:

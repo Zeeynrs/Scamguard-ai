@@ -69,9 +69,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
         owner            TEXT NOT NULL,
         name             TEXT NOT NULL,
         telegram_username TEXT NOT NULL DEFAULT '',
+        telegram_chat_id TEXT NOT NULL DEFAULT '',
         created_at       REAL NOT NULL DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_trust_owner ON trust_circle(owner);
+
+    -- Telegram identities captured when a user runs /start on the bot.
+    -- A bot can only message a chat_id it has seen before; @username alone
+    -- is NOT deliverable (Telegram returns "chat not found").
+    CREATE TABLE IF NOT EXISTS telegram_users (
+        chat_id    TEXT PRIMARY KEY,
+        username   TEXT NOT NULL DEFAULT '',
+        first_name TEXT NOT NULL DEFAULT '',
+        last_name  TEXT NOT NULL DEFAULT '',
+        updated_at REAL NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tg_username ON telegram_users(username);
 
     CREATE TABLE IF NOT EXISTS verification_pings (
         id          TEXT PRIMARY KEY,
@@ -93,6 +106,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
     );
     CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
     """)
+
+    # --- Idempotent column additions for pre-existing databases ---
+    # CREATE TABLE IF NOT EXISTS does not add columns to a table that already
+    # exists, so new columns need an explicit ALTER TABLE guarded by a check.
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(trust_circle)").fetchall()
+    }
+    if "telegram_chat_id" not in existing:
+        conn.execute(
+            "ALTER TABLE trust_circle ADD COLUMN telegram_chat_id TEXT NOT NULL DEFAULT ''"
+        )
+
     conn.commit()
 
 

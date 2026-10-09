@@ -26,6 +26,8 @@ from app.core.fusion import compute_risk
 from app.core.schemas import AudioAnalysisResult, VisionAnalysisResult, IntentAnalysisResult
 from app.config import settings
 from app.safety import build_guidance, store
+from app.safety.db import get_conn, transaction
+from app.safety.notify import notify_user_registered
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("scamguard.bot")
@@ -111,15 +113,105 @@ def _fmt_report(risk, intent, transcript, language, audio_score, duration):
     return "\n".join(lines)
 
 
+def _save_tg_user(update: Update) -> None:
+    """Persist the Telegram user's chat_id + username so pings can reach them."""
+    chat = update.effective_chat
+    user = update.effective_user
+    if not chat:
+        return
+    chat_id = str(chat.id)
+    username = (user.username or "").strip().lower() if user else ""
+    first_name = (user.first_name or "").strip() if user else ""
+    last_name = (user.last_name or "").strip() if user else ""
+
+    import time as _t
+    now = _t.time()
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO telegram_users (chat_id, username, first_name, last_name, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET
+                username=excluded.username,
+                first_name=excluded.first_name,
+                last_name=excluded.last_name,
+                updated_at=excluded.updated_at
+            """,
+            (chat_id, username, first_name, last_name, now),
+        )
+    logger.info("Saved Telegram user: chat_id=%s username=@%s", chat_id, username or "?")
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+    _save_tg_user(update)
+
+    user = update.effective_user
+    name = (user.first_name or f"@{user.username}") if user else "there"
     await update.message.reply_text(
-        "🛡 *ScamGuard Multimodal Bot*\n\n"
+        f"🛡 *ScamGuard Multimodal Bot*\n\n"
+        f"Halo {name}!\n\n"
         "Kirim voice note / rekaman panggilan yang mencurigakan, saya analisis:\n"
         "• Pola penipuan (taktik urgency, transfer, OTP)\n"
         "• Indikasi suara sintetis / AI voice clone\n"
         "• Skor risiko + rekomendasi tindakan\n\n"
         "Bahasa: Indonesia & Inggris\n\n"
-        "Note: audio deepfake score adalah indikasi, bukan bukti absolut.",
+        "Note: audio deepfake score adalah indikasi, bukan bukti absolut.\n\n"
+        "✅ _Akun kamu sudah terdaftar — kamu bisa terima verification ping dari keluarga._",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+    if update.effective_chat:
+        notify_user_registered(str(update.effective_chat.id), user.username or "" if user else "")
+
+
+async def cmd_register(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Alias for /start — just re-saves the user identity."""
+    if not update.message:
+        return
+    _save_tg_user(update)
+    await update.message.reply_text(
+        "✅ Terdaftar! Akun kamu bisa terima verification ping dari Trust Circle.",
+    )
+
+
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline button presses on verification ping messages."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    data = query.data or ""
+    parts = data.split(":")
+    if len(parts) != 4 or parts[0] != "ping":
+        return
+
+    _, ping_id, verdict, owner = parts
+    confirmed = verdict == "real"
+
+    ping = store.respond(ping_id, confirmed_identity=confirmed, owner=owner)
+    if not ping:
+        if query.message:
+            await query.edit_message_reply_markup(reply_markup=None)
+            chat_id = query.message.chat.id if hasattr(query.message, "chat") else None
+            if chat_id:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="⚠️ Ping tidak ditemukan atau sudah kedaluwarsa.",
+                )
+        return
+
+    status_label = "✅ Real identity confirmed" if confirmed else "🚨 Impostor flagged"
+    emoji = "✅" if confirmed else "🚨"
+
+    await query.edit_message_text(
+        f"{emoji} *Verification Ping — Answered*\n\n"
+        f"Family *{owner}*\n"
+        f"> {ping.claim}\n\n"
+        f"Result: *{status_label}*\n"
+        f"Ping ID: `{ping_id}`",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -214,7 +306,10 @@ def build_application(token: str) -> Application:
     app = Application.builder().token(token).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("help", cmd_help))
+    from telegram.ext import CallbackQueryHandler
+    app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_handler(MessageHandler(
         filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE |
         (filters.Document.ALL & filters.Document.AUDIO), handle_audio))

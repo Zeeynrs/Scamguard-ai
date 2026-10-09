@@ -59,6 +59,9 @@ class TrustContact(BaseModel):
     owner: str
     name: str
     telegram_username: str = ""
+    # True when we hold a deliverable numeric chat_id for this contact
+    # (i.e. they have started the bot at least once).
+    ping_ready: bool = False
 
 
 class VerificationPing(BaseModel):

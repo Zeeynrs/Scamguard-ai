@@ -340,8 +340,13 @@ async def create_verification_ping(request: Request, payload: CreatePingRequest)
     ping = store.create_ping(owner, payload.claim.strip())
     # Dispatch Telegram notifications to each Trust Circle contact (best-effort).
     for contact in store.list_contacts(owner):
-        if contact.telegram_username:
-            notify_ping(contact.telegram_username, owner, payload.claim.strip(), ping.id)
+        notify_ping(
+            contact_username=contact.telegram_username,
+            owner=owner,
+            claim=payload.claim.strip(),
+            ping_id=ping.id,
+            contact_id=contact.id,
+        )
     return {"status": "ok", "ping": ping.model_dump()}
 
 
