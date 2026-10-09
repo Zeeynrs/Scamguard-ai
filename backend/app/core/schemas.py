@@ -70,6 +70,16 @@ class VerificationPing(BaseModel):
     claim: str
     status: str = "pending"
     created_at: float = 0.0
+    # Rich context for the Trust Circle
+    scammer_name: str = ""
+    scammer_handle: str = ""
+    scammer_channel: str = ""
+    threat_type: str = ""
+    amount_requested: str = ""
+    location: str = ""
+    notes: str = ""
+    risk_level: str = ""
+    evidence_url: str = ""
 
 
 class TextAnalysisRequest(BaseModel):

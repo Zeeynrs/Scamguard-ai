@@ -118,6 +118,26 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE trust_circle ADD COLUMN telegram_chat_id TEXT NOT NULL DEFAULT ''"
         )
 
+    # --- Rich context columns on verification_pings (added later) ---
+    ping_cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(verification_pings)").fetchall()
+    }
+    for col in (
+        "scammer_name",
+        "scammer_handle",
+        "scammer_channel",
+        "threat_type",
+        "amount_requested",
+        "location",
+        "notes",
+        "risk_level",
+        "evidence_url",
+    ):
+        if col not in ping_cols:
+            conn.execute(
+                f"ALTER TABLE verification_pings ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
+            )
+
     conn.commit()
 
 

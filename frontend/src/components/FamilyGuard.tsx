@@ -49,6 +49,15 @@ interface Ping {
   claim: string;
   status: string;
   created_at: number;
+  scammer_name?: string;
+  scammer_handle?: string;
+  scammer_channel?: string;
+  threat_type?: string;
+  amount_requested?: string;
+  location?: string;
+  notes?: string;
+  risk_level?: string;
+  evidence_url?: string;
 }
 
 // -------------------------------------------------------
@@ -76,6 +85,20 @@ const labels = {
     createPing: "Ping Family",
     pingClaim: "What are they claiming?",
     sendPing: "Send",
+    pingDetails: "Details (optional)",
+    pingScammerName: "Scammer name / alias",
+    pingScammerHandle: "Phone / @username",
+    pingChannel: "Channel (WA, call, IG, SMS…)",
+    pingThreat: "Scam type (romance, fake bank, OTP…)",
+    pingAmount: "Amount / account requested",
+    pingLocation: "Victim location",
+    pingNotes: "Extra notes",
+    pingRisk: "Risk level",
+    pingEvidence: "Evidence URL (recording/screenshot)",
+    riskCritical: "Critical",
+    riskHigh: "High",
+    riskMedium: "Medium",
+    riskLow: "Low",
     realIdentity: "Real identity",
     impostor: "Impostor",
     noContacts: "No contacts. Add family members first.",
@@ -107,6 +130,20 @@ const labels = {
     createPing: "Ping Keluarga",
     pingClaim: "Apa yang mereka klaim?",
     sendPing: "Kirim",
+    pingDetails: "Detail (opsional)",
+    pingScammerName: "Nama penipu / alias",
+    pingScammerHandle: "No. HP / @username",
+    pingChannel: "Kanal (WA, telepon, IG, SMS…)",
+    pingThreat: "Jenis penipuan",
+    pingAmount: "Nominal / rekening diminta",
+    pingLocation: "Lokasi korban",
+    pingNotes: "Catatan tambahan",
+    pingRisk: "Tingkat risiko",
+    pingEvidence: "URL bukti (rekaman/screenshot)",
+    riskCritical: "Kritis",
+    riskHigh: "Tinggi",
+    riskMedium: "Sedang",
+    riskLow: "Rendah",
     realIdentity: "Identitas asli",
     impostor: "Penipu",
     noContacts: "Belum ada kontak. Tambah anggota keluarga dulu.",
@@ -147,6 +184,16 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
   // Pings state
   const [pings, setPings] = useState<Ping[]>([]);
   const [pingClaim, setPingClaim] = useState("");
+  const [pingScammerName, setPingScammerName] = useState("");
+  const [pingScammerHandle, setPingScammerHandle] = useState("");
+  const [pingChannel, setPingChannel] = useState("");
+  const [pingThreat, setPingThreat] = useState("");
+  const [pingAmount, setPingAmount] = useState("");
+  const [pingLocation, setPingLocation] = useState("");
+  const [pingNotes, setPingNotes] = useState("");
+  const [pingRisk, setPingRisk] = useState("");
+  const [pingEvidence, setPingEvidence] = useState("");
+  const [pingDetailsOpen, setPingDetailsOpen] = useState(false);
   const [pingLoading, setPingLoading] = useState(false);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -309,10 +356,31 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
       const r = await apiFetch(`${API_BASE}/api/family/pings`, {
         method: "POST",
         headers: familyHeaders(),
-        body: JSON.stringify({ claim }),
+        body: JSON.stringify({
+          claim,
+          scammer_name: pingScammerName.trim(),
+          scammer_handle: pingScammerHandle.trim(),
+          scammer_channel: pingChannel.trim(),
+          threat_type: pingThreat.trim(),
+          amount_requested: pingAmount.trim(),
+          location: pingLocation.trim(),
+          notes: pingNotes.trim(),
+          risk_level: pingRisk.trim(),
+          evidence_url: pingEvidence.trim(),
+        }),
       });
       if (r.ok) {
         setPingClaim("");
+        setPingScammerName("");
+        setPingScammerHandle("");
+        setPingChannel("");
+        setPingThreat("");
+        setPingAmount("");
+        setPingLocation("");
+        setPingNotes("");
+        setPingRisk("");
+        setPingEvidence("");
+        setPingDetailsOpen(false);
         await fetchPings();
       }
     } catch {}
@@ -614,6 +682,47 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
                   </span>
                 </div>
                 <p className="text-xs text-slate-200">"{p.claim}"</p>
+                {/* Rich context from the victim's report */}
+                {(p.scammer_name || p.scammer_handle || p.threat_type || p.amount_requested || p.location || p.risk_level) && (
+                  <div className="text-[11px] text-slate-400 space-y-0.5 pt-1 border-t border-slate-800/50">
+                    {p.risk_level && (
+                      <p className={`font-mono uppercase font-bold ${
+                        p.risk_level === "critical" ? "text-red-400"
+                          : p.risk_level === "high" ? "text-orange-400"
+                          : p.risk_level === "medium" ? "text-yellow-400"
+                          : "text-emerald-400"
+                      }`}>
+                        {language === "id" ? "Risiko" : "Risk"}: {p.risk_level}
+                      </p>
+                    )}
+                    {p.scammer_name && (
+                      <p>{language === "id" ? "Penipu" : "Scammer"}: <span className="text-slate-200">{p.scammer_name}</span></p>
+                    )}
+                    {p.scammer_handle && (
+                      <p>{language === "id" ? "Kontak" : "Handle"}: <span className="text-slate-200">{p.scammer_handle}</span></p>
+                    )}
+                    {p.scammer_channel && (
+                      <p>{language === "id" ? "Kanal" : "Channel"}: <span className="text-slate-200">{p.scammer_channel}</span></p>
+                    )}
+                    {p.threat_type && (
+                      <p>{language === "id" ? "Modus" : "Type"}: <span className="text-slate-200">{p.threat_type}</span></p>
+                    )}
+                    {p.amount_requested && (
+                      <p>{language === "id" ? "Nominal" : "Amount"}: <span className="text-slate-200">{p.amount_requested}</span></p>
+                    )}
+                    {p.location && (
+                      <p>{language === "id" ? "Lokasi" : "Location"}: <span className="text-slate-200">{p.location}</span></p>
+                    )}
+                    {p.notes && (
+                      <p className="text-slate-500 italic">{p.notes}</p>
+                    )}
+                    {p.evidence_url && (
+                      <a href={p.evidence_url} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">
+                        {language === "id" ? "Lihat bukti" : "View evidence"} ↗
+                      </a>
+                    )}
+                  </div>
+                )}
                 {p.status === "pending" && (
                   <div className="flex gap-2 pt-1">
                     <button
@@ -677,6 +786,52 @@ export default function FamilyGuard({ guidance, language }: FamilyGuardProps) {
             <Broadcast size={14} weight="bold" />
             {t.sendPing}
           </button>
+        </div>
+
+        {/* Collapsible detailed context (optional) */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setPingDetailsOpen(!pingDetailsOpen)}
+            className="text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1"
+          >
+            {pingDetailsOpen ? "▼" : "▶"} {t.pingDetails}
+          </button>
+          {pingDetailsOpen && (
+            <div className="space-y-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input type="text" value={pingScammerName} onChange={(e) => setPingScammerName(e.target.value)} placeholder={t.pingScammerName} className="input-field h-9 text-sm" disabled={pingLoading} />
+                <input type="text" value={pingScammerHandle} onChange={(e) => setPingScammerHandle(e.target.value)} placeholder={t.pingScammerHandle} className="input-field h-9 text-sm" disabled={pingLoading} />
+                <input type="text" value={pingChannel} onChange={(e) => setPingChannel(e.target.value)} placeholder={t.pingChannel} className="input-field h-9 text-sm" disabled={pingLoading} />
+                <input type="text" value={pingThreat} onChange={(e) => setPingThreat(e.target.value)} placeholder={t.pingThreat} className="input-field h-9 text-sm" disabled={pingLoading} />
+                <input type="text" value={pingAmount} onChange={(e) => setPingAmount(e.target.value)} placeholder={t.pingAmount} className="input-field h-9 text-sm" disabled={pingLoading} />
+                <input type="text" value={pingLocation} onChange={(e) => setPingLocation(e.target.value)} placeholder={t.pingLocation} className="input-field h-9 text-sm" disabled={pingLoading} />
+                <input type="text" value={pingNotes} onChange={(e) => setPingNotes(e.target.value)} placeholder={t.pingNotes} className="input-field h-9 text-sm" disabled={pingLoading} />
+                <input type="text" value={pingEvidence} onChange={(e) => setPingEvidence(e.target.value)} placeholder={t.pingEvidence} className="input-field h-9 text-sm" disabled={pingLoading} />
+              </div>
+              <div className="flex gap-1.5">
+                {(["critical", "high", "medium", "low"] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setPingRisk(pingRisk === r ? "" : r)}
+                    className={`px-2 py-1 rounded-md text-[11px] font-mono uppercase font-semibold transition-colors ${
+                      pingRisk === r
+                        ? r === "critical" ? "bg-red-500/30 text-red-300 border border-red-500"
+                          : r === "high" ? "bg-orange-500/30 text-orange-300 border border-orange-500"
+                          : r === "medium" ? "bg-yellow-500/30 text-yellow-300 border border-yellow-500"
+                          : "bg-emerald-500/30 text-emerald-300 border border-emerald-500"
+                        : "border border-slate-700 text-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    {language === "id"
+                      ? (r === "critical" ? t.riskCritical : r === "high" ? t.riskHigh : r === "medium" ? t.riskMedium : t.riskLow)
+                      : r}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <FamilyOnboardingModal

@@ -171,18 +171,40 @@ class FamilyStore:
     # Verification Pings
     # -----------------------------------------------------------------------
 
-    def create_ping(self, owner: str, claim: str, ttl_seconds: int = 3600) -> VerificationPing:
+    _PING_CTX_COLS = (
+        "scammer_name", "scammer_handle", "scammer_channel", "threat_type",
+        "amount_requested", "location", "notes", "risk_level", "evidence_url",
+    )
+
+    def create_ping(self, owner: str, claim: str, ttl_seconds: int = 3600, **ctx) -> VerificationPing:
         pid = str(uuid.uuid4())[:8]
         now = time.time()
+        ctx_cols = [
+            "scammer_name", "scammer_handle", "scammer_channel", "threat_type",
+            "amount_requested", "location", "notes", "risk_level", "evidence_url",
+        ]
+        vals = [str(ctx.get(c, "") or "") for c in ctx_cols]
         with transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO verification_pings (id, owner, claim, status, ttl_seconds, created_at)
-                VALUES (?, ?, ?, 'pending', ?, ?)
+                INSERT INTO verification_pings
+                    (id, owner, claim, status, ttl_seconds, created_at, """ + ",".join(ctx_cols) + """)
+                VALUES (?, ?, ?, 'pending', ?, ?, """ + ",".join("?" for _ in ctx_cols) + """)
                 """,
-                (pid, owner, claim, ttl_seconds, now),
+                [pid, owner, claim, ttl_seconds, now] + vals,
             )
-        return VerificationPing(id=pid, owner=owner, claim=claim, status="pending", created_at=now)
+        return VerificationPing(
+            id=pid, owner=owner, claim=claim, status="pending", created_at=now,
+            **{c: v for c, v in zip(ctx_cols, vals)},
+        )
+
+    @classmethod
+    def _ping_from_row(cls, r) -> VerificationPing:
+        return VerificationPing(
+            id=r["id"], owner=r["owner"], claim=r["claim"],
+            status=r["status"], created_at=r["created_at"],
+            **{c: r[c] if c in r.keys() else "" for c in cls._PING_CTX_COLS},
+        )
 
     def list_pings(self, owner: str) -> List[VerificationPing]:
         """List pings, automatically marking expired ones."""
@@ -199,23 +221,16 @@ class FamilyStore:
             )
             rows = conn.execute(
                 """
-                SELECT id, owner, claim, status, created_at
+                SELECT id, owner, claim, status, created_at, scammer_name, scammer_handle,
+                       scammer_channel, threat_type, amount_requested, location, notes,
+                       risk_level, evidence_url
                 FROM verification_pings
                 WHERE owner = ?
                 ORDER BY created_at DESC
                 """,
                 (owner,),
             ).fetchall()
-        return [
-            VerificationPing(
-                id=r["id"],
-                owner=r["owner"],
-                claim=r["claim"],
-                status=r["status"],
-                created_at=r["created_at"],
-            )
-            for r in rows
-        ]
+        return [self._ping_from_row(r) for r in rows]
 
     def respond(
         self,
@@ -247,7 +262,9 @@ class FamilyStore:
                 # the caller. Only return the row if the caller owns it.
                 row = conn.execute(
                     """
-                    SELECT id, owner, claim, status, created_at
+                    SELECT id, owner, claim, status, created_at, scammer_name, scammer_handle,
+                           scammer_channel, threat_type, amount_requested, location, notes,
+                           risk_level, evidence_url
                     FROM verification_pings
                     WHERE id = ? AND (? IS NULL OR owner = ?)
                     """,
@@ -255,25 +272,16 @@ class FamilyStore:
                 ).fetchone()
                 if not row:
                     return None
-                return VerificationPing(
-                    id=row["id"],
-                    owner=row["owner"],
-                    claim=row["claim"],
-                    status=row["status"],
-                    created_at=row["created_at"],
-                )
+                return self._ping_from_row(row)
 
             row = conn.execute(
-                "SELECT id, owner, claim, status, created_at FROM verification_pings WHERE id = ?",
+                """SELECT id, owner, claim, status, created_at, scammer_name, scammer_handle,
+                          scammer_channel, threat_type, amount_requested, location, notes,
+                          risk_level, evidence_url
+                   FROM verification_pings WHERE id = ?""",
                 (ping_id,),
             ).fetchone()
-            return VerificationPing(
-                id=row["id"],
-                owner=row["owner"],
-                claim=row["claim"],
-                status=row["status"],
-                created_at=row["created_at"],
-            )
+            return self._ping_from_row(row)
 
 
 # -----------------------------------------------------------------------

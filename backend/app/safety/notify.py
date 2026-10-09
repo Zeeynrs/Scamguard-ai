@@ -19,8 +19,9 @@ import json
 import logging
 import os
 import threading
-import urllib.parse
+import urllib.error
 import urllib.request
+from typing import Any, Dict, Optional
 
 from app.safety.db import get_conn
 
@@ -117,16 +118,77 @@ def _send_ping(chat_id: str, text: str, ping_id: str, owner: str) -> None:
     )
 
 
+def _format_ping_text(owner: str, claim: str, ping_id: str, details: Optional[Dict[str, Any]] = None) -> str:
+    """Format an informative, high-clarity alert message for family/circle."""
+    details = details or {}
+    risk = (details.get("risk_level") or "").strip().lower()
+    risk_badge = {
+        "critical": "🚨 *RISIKO KRITIS*",
+        "high": "🔴 *RISIKO TINGGI*",
+        "medium": "🟡 *RISIKO SEDANG*",
+        "low": "🟢 *RISIKO RENDAH*",
+    }.get(risk, "⚠️ *PERMINTAAN VERIFIKASI*")
+
+    lines = [
+        f"🛡 *ScamGuard — Emergency Alert*",
+        f"{risk_badge}",
+        "",
+        f"Anggota keluarga Anda *{owner}* sedang menghadapi situasi yang dicurigai penipuan.",
+        "",
+        f"📌 *Klaim/Pesan:*",
+        f"> {claim}",
+    ]
+
+    # Context fields (show only those present)
+    ctx_parts = []
+    scammer_name = details.get("scammer_name")
+    if scammer_name:
+        ctx_parts.append(f"• *Nama Kontak:* {scammer_name}")
+    scammer_handle = details.get("scammer_handle")
+    if scammer_handle:
+        ctx_parts.append(f"• *Nomor / Akun:* `{scammer_handle}`")
+    scammer_channel = details.get("scammer_channel")
+    if scammer_channel:
+        ctx_parts.append(f"• *Kanal:* {scammer_channel}")
+    threat_type = details.get("threat_type")
+    if threat_type:
+        ctx_parts.append(f"• *Modus Penipuan:* {threat_type}")
+    amount_requested = details.get("amount_requested")
+    if amount_requested:
+        ctx_parts.append(f"• *Nominal / Rekening:* `{amount_requested}`")
+    location = details.get("location")
+    if location:
+        ctx_parts.append(f"• *Lokasi Korban:* {location}")
+    notes = details.get("notes")
+    if notes:
+        ctx_parts.append(f"• *Catatan Tambahan:* {notes}")
+    evidence_url = details.get("evidence_url")
+    if evidence_url:
+        ctx_parts.append(f"• *Bukti Rekaman/Tangkapan:* [Lihat Bukti]({evidence_url})")
+
+    if ctx_parts:
+        lines.append("")
+        lines.append("📋 *Detail Kejadian:*")
+        lines.extend(ctx_parts)
+
+    lines.extend([
+        "",
+        f"🆔 ID Verifikasi: `{ping_id}`",
+        "",
+        "⚠️ *Tindakan Anda Sangat Penting!*",
+        "Apakah Anda yakin ini identitas asli atau orang yang benar, atau ini penipu?",
+        "Segera konfirmasi melalui tombol di bawah:",
+    ])
+    return "\n".join(lines)
+
+
 def notify_ping(contact_username: str, owner: str, claim: str, ping_id: str,
-                contact_id: str = "") -> bool:
+                contact_id: str = "", details: Optional[Dict[str, Any]] = None) -> bool:
     """
-    Fire a verification-ping message to a Trust Circle contact.
+    Fire a verification-ping message to a Trust Circle contact with full victim context.
 
     Returns True if a send was dispatched (thread started), False when there is
     nothing to send to (missing chat_id or bot token).
-
-    The contact must have started @S_cam_Guard_AI_bot at least once so we
-    captured their numeric chat_id. @username alone is not deliverable by bots.
     """
     if not _token():
         return False
@@ -140,14 +202,7 @@ def notify_ping(contact_username: str, owner: str, claim: str, ping_id: str,
         )
         return False
 
-    text = (
-        "🛡 *ScamGuard — Verification Ping*\n\n"
-        f"Family *{owner}* needs to confirm an identity claim:\n"
-        f"> {claim}\n\n"
-        f"Ping ID: `{ping_id}`\n\n"
-        "Tap a button below to confirm *Real identity* "
-        "or flag *Impostor*."
-    )
+    text = _format_ping_text(owner=owner, claim=claim, ping_id=ping_id, details=details)
     threading.Thread(
         target=_send_ping, args=(chat_id, text, ping_id, owner), daemon=True
     ).start()

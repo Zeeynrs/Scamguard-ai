@@ -273,6 +273,16 @@ class AddContactRequest(BaseModel):
 
 class CreatePingRequest(BaseModel):
     claim: str
+    # Rich context shown to the Trust Circle so they can assess the threat
+    scammer_name: str = ""
+    scammer_handle: str = ""  # phone, WA number, @username, etc.
+    scammer_channel: str = ""  # call, voice note, WA, IG, FB, SMS, email
+    threat_type: str = ""  # romance, fake bank, OTP, investment, parcel, etc.
+    amount_requested: str = ""  # free-text e.g. "Rp 2.500.000 via BCA 1234567890"
+    location: str = ""
+    notes: str = ""
+    risk_level: str = ""  # low / medium / high / critical
+    evidence_url: str = ""  # optional link to evidence (recording, screenshot)
 
 
 class RespondPingRequest(BaseModel):
@@ -337,7 +347,19 @@ async def create_verification_ping(request: Request, payload: CreatePingRequest)
     owner = _owner(request)
     if not payload.claim.strip():
         raise HTTPException(status_code=400, detail="Claim cannot be empty")
-    ping = store.create_ping(owner, payload.claim.strip())
+    ping = store.create_ping(
+        owner,
+        payload.claim.strip(),
+        scammer_name=payload.scammer_name.strip(),
+        scammer_handle=payload.scammer_handle.strip(),
+        scammer_channel=payload.scammer_channel.strip(),
+        threat_type=payload.threat_type.strip(),
+        amount_requested=payload.amount_requested.strip(),
+        location=payload.location.strip(),
+        notes=payload.notes.strip(),
+        risk_level=payload.risk_level.strip(),
+        evidence_url=payload.evidence_url.strip(),
+    )
     # Dispatch Telegram notifications to each Trust Circle contact (best-effort).
     for contact in store.list_contacts(owner):
         notify_ping(
@@ -346,6 +368,7 @@ async def create_verification_ping(request: Request, payload: CreatePingRequest)
             claim=payload.claim.strip(),
             ping_id=ping.id,
             contact_id=contact.id,
+            details=ping.model_dump(),
         )
     return {"status": "ok", "ping": ping.model_dump()}
 
