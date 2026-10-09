@@ -10,6 +10,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./backend/data:/app/data
       - hf-cache:/root/.cache/huggingface
     # Host has 3.82 GiB RAM and NO swap. Observed high-water under 8 concurrent
     # live-call sessions is ~1.6 GiB. Without a limit a runaway session can OOM
@@ -43,6 +44,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./backend/data:/app/data
       - hf-cache:/root/.cache/huggingface
     depends_on:
       backend:

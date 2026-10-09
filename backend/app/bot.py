@@ -139,6 +139,16 @@ def _save_tg_user(update: Update) -> None:
             """,
             (chat_id, username, first_name, last_name, now),
         )
+        # Immediately backfill chat_id into existing trust_circle contacts matching this username
+        if username:
+            conn.execute(
+                """
+                UPDATE trust_circle
+                SET telegram_chat_id = ?
+                WHERE replace(lower(telegram_username), '@', '') = lower(?)
+                """,
+                (chat_id, username),
+            )
     logger.info("Saved Telegram user: chat_id=%s username=@%s", chat_id, username or "?")
 
 

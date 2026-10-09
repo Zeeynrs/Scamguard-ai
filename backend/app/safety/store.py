@@ -111,9 +111,10 @@ class FamilyStore:
             )
             # If user already started bot, fetch their chat_id for future pings.
             if telegram_username:
+                clean_u = telegram_username.lstrip('@').strip().lower()
                 row = conn.execute(
-                    "SELECT chat_id FROM telegram_users WHERE username = ?",
-                    (telegram_username.lstrip('@'),),
+                    "SELECT chat_id FROM telegram_users WHERE lower(username) = ?",
+                    (clean_u,),
                 ).fetchone()
                 if row:
                     conn.execute(
@@ -135,12 +136,18 @@ class FamilyStore:
             # Fall back to the telegram_users registry so readiness is accurate
             # even for contacts added before the user started the bot.
             if not chat_id and uname:
+                clean_u = uname.lstrip("@").strip().lower()
                 hit = conn.execute(
-                    "SELECT chat_id FROM telegram_users WHERE username = ?",
-                    (uname.lstrip("@"),),
+                    "SELECT chat_id FROM telegram_users WHERE lower(username) = ?",
+                    (clean_u,),
                 ).fetchone()
                 if hit:
                     chat_id = hit["chat_id"]
+                    # Persist backfill
+                    try:
+                        conn.execute("UPDATE trust_circle SET telegram_chat_id = ? WHERE id = ?", (chat_id, r["id"]))
+                    except Exception:
+                        pass
             out.append(
                 TrustContact(
                     id=r["id"],
