@@ -353,7 +353,7 @@ export default function ScamChecker({ language, mode, setMode }: ScamCheckerProp
   const tabs: { id: CheckerMode; label: string; Icon: typeof ChatCircleText; disabled?: boolean }[] = [
     { id: "text", label: t.text_tab, Icon: ChatCircleText },
     { id: "upload", label: t.upload_tab, Icon: Microphone },
-    { id: "live", label: `${t.live_monitor} (Inactive)`, Icon: VideoCamera, disabled: true },
+    { id: "live", label: t.live_monitor, Icon: VideoCamera },
   ];
 
   const kinds: { id: InputKind; label: string; Icon: typeof Globe }[] = [

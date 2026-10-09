@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.api.routes import router
+from app.call.signaling import router as signaling_router
 from app.config import settings
 from app.core.security import SecurityMiddleware
 
@@ -37,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
+app.include_router(signaling_router, prefix="/api")
 
 
 # --- Bot webhook setup on startup ---
